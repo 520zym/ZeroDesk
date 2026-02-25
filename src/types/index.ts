@@ -222,13 +222,23 @@ export interface MarketplaceSearchResult {
 
 // ─── Knowledge ───────────────────────────────────────────────
 
+export interface KnowledgeFolder {
+  id: string;
+  workspace_id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface KnowledgeItem {
   id: string;
+  workspace_id: string;
+  folder: string | null;
   title: string;
-  content: string;
-  content_type: string;
-  source_url: string | null;
-  embedding_status: string;
+  content: string | null;
+  content_type: string | null;
+  tags_json: string | null;
+  visibility: string | null;
+  version: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -236,9 +246,9 @@ export interface KnowledgeItem {
 export interface KnowledgeVersion {
   id: string;
   item_id: string;
-  version_number: number;
-  content: string;
-  change_summary: string | null;
+  version: number;
+  content: string | null;
+  change_note: string | null;
   created_at: string;
 }
 
@@ -247,17 +257,26 @@ export interface KnowledgeVersion {
 export interface PromptVersion {
   id: string;
   agent_id: string;
-  version_number: number;
-  system_prompt: string;
-  change_note: string | null;
+  version: number;
+  content: string;
+  note: string | null;
+  is_stable: number | null;
+  quality_score: number | null;
+  cost_change: number | null;
   created_at: string;
 }
 
 export interface WorkflowTemplate {
   id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
-  steps_json: string;
+  category: string | null;
+  icon_name: string | null;
+  icon_bg: string | null;
+  parameters_json: string | null;
+  steps_json: string | null;
+  usage_count: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -313,4 +332,30 @@ export interface HistoryStats {
   success_rate: number;
   avg_duration_seconds: number;
   total_cost: number;
+}
+
+// ─── Dashboard Charts ────────────────────────────────────────
+
+export interface DailyTaskCount {
+  day: string;
+  count: number;
+}
+
+export interface AgentUsageRank {
+  agent_id: string;
+  agent_name: string;
+  avatar_char: string | null;
+  avatar_color: string | null;
+  usage_count: number;
+}
+
+export interface CostDistributionEntry {
+  name: string;
+  cost: number;
+  percentage: number;
+}
+
+export interface DurationBucket {
+  label: string;
+  count: number;
 }

@@ -111,10 +111,16 @@ pub fn run() {
             skills::import_local_skill,
             skills::import_scanned_skill,
             // knowledge
+            knowledge::list_knowledge_folders,
+            knowledge::create_knowledge_folder,
+            knowledge::rename_knowledge_folder,
+            knowledge::delete_knowledge_folder,
             knowledge::list_knowledge_items,
             knowledge::get_knowledge_item,
             knowledge::create_knowledge_item,
             knowledge::update_knowledge_item,
+            knowledge::delete_knowledge_item,
+            knowledge::move_knowledge_item,
             knowledge::list_knowledge_versions,
             // prompts & workflow templates
             prompts::list_prompt_versions,
@@ -129,6 +135,10 @@ pub fn run() {
             dashboard::get_dashboard_kpis,
             dashboard::get_history_stats,
             dashboard::list_history_tasks,
+            dashboard::get_weekly_task_trend,
+            dashboard::get_agent_usage_ranking,
+            dashboard::get_cost_distribution,
+            dashboard::get_task_duration_distribution,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

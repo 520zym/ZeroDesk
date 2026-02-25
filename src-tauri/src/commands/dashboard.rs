@@ -2,7 +2,10 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::db::DEFAULT_WORKSPACE_ID;
-use crate::models::{DashboardKpi, HistoryStats, Task};
+use crate::models::{
+    AgentUsageRank, CostDistributionEntry, DailyTaskCount, DashboardKpi, DurationBucket,
+    HistoryStats, Task,
+};
 
 #[tauri::command]
 pub async fn get_dashboard_kpis(
@@ -191,4 +194,110 @@ pub async fn list_history_tasks(
             .map_err(|e| e.to_string())
         }
     }
+}
+
+#[tauri::command]
+pub async fn get_weekly_task_trend(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<DailyTaskCount>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    sqlx::query_as::<_, DailyTaskCount>(
+        "SELECT date(created_at) as day, COUNT(*) as count \
+         FROM tasks WHERE workspace_id = ?1 AND created_at >= date('now', '-6 days') \
+         GROUP BY date(created_at) ORDER BY day ASC",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_usage_ranking(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<AgentUsageRank>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    sqlx::query_as::<_, AgentUsageRank>(
+        "SELECT a.id as agent_id, a.name as agent_name, a.avatar_char, a.avatar_color, \
+         COUNT(ts.id) as usage_count \
+         FROM agents a LEFT JOIN task_steps ts ON ts.agent_id = a.id \
+         WHERE a.workspace_id = ?1 \
+         GROUP BY a.id ORDER BY usage_count DESC LIMIT 10",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_cost_distribution(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<CostDistributionEntry>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+
+    #[derive(sqlx::FromRow)]
+    struct RawCost {
+        name: String,
+        cost: f64,
+    }
+
+    let rows = sqlx::query_as::<_, RawCost>(
+        "SELECT mp.name, \
+         COALESCE(SUM(CAST(ts.tokens_used AS REAL) * COALESCE(m.price_per_million_tokens, 0) / 1000000.0), 0) as cost \
+         FROM task_steps ts \
+         JOIN agents a ON ts.agent_id = a.id \
+         JOIN models m ON a.model_id = m.id \
+         JOIN model_providers mp ON m.provider_id = mp.id \
+         WHERE a.workspace_id = ?1 \
+         GROUP BY mp.id ORDER BY cost DESC",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total: f64 = rows.iter().map(|r| r.cost).sum();
+    let result = rows
+        .into_iter()
+        .map(|r| CostDistributionEntry {
+            percentage: if total > 0.0 {
+                (r.cost / total) * 100.0
+            } else {
+                0.0
+            },
+            name: r.name,
+            cost: r.cost,
+        })
+        .collect();
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_task_duration_distribution(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<DurationBucket>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    sqlx::query_as::<_, DurationBucket>(
+        "SELECT \
+           CASE \
+             WHEN (julianday(completed_at) - julianday(created_at)) * 1440 < 1 THEN '<1m' \
+             WHEN (julianday(completed_at) - julianday(created_at)) * 1440 < 3 THEN '1-3m' \
+             WHEN (julianday(completed_at) - julianday(created_at)) * 1440 < 5 THEN '3-5m' \
+             WHEN (julianday(completed_at) - julianday(created_at)) * 1440 < 10 THEN '5-10m' \
+             ELSE '>10m' \
+           END as label, \
+           COUNT(*) as count \
+         FROM tasks \
+         WHERE workspace_id = ?1 AND completed_at IS NOT NULL \
+         GROUP BY label \
+         ORDER BY CASE label \
+           WHEN '<1m' THEN 1 WHEN '1-3m' THEN 2 WHEN '3-5m' THEN 3 \
+           WHEN '5-10m' THEN 4 WHEN '>10m' THEN 5 END",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
 }

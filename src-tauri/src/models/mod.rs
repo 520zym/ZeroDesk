@@ -168,6 +168,14 @@ pub struct Skill {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct KnowledgeFolder {
+    pub id: String,
+    pub workspace_id: String,
+    pub name: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct KnowledgeItem {
     pub id: String,
     pub workspace_id: String,
@@ -317,4 +325,32 @@ pub struct HistoryStats {
     pub success_rate: f64,
     pub avg_duration_seconds: f64,
     pub total_cost: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DailyTaskCount {
+    pub day: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct AgentUsageRank {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub avatar_char: Option<String>,
+    pub avatar_color: Option<String>,
+    pub usage_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostDistributionEntry {
+    pub name: String,
+    pub cost: f64,
+    pub percentage: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct DurationBucket {
+    pub label: String,
+    pub count: i64,
 }
