@@ -21,6 +21,13 @@ export interface ScanResult {
   scanned_paths: ScanPathInfo[];
 }
 
+export interface ValidatedSkill {
+  name: string;
+  path: string;
+  description: string | null;
+  marker: string;
+}
+
 export function useSkills() {
   return useQuery({
     queryKey: ["skills"],
@@ -72,6 +79,35 @@ export function useInstallMarketplaceSkill() {
 export function useScanExternalSkills() {
   return useMutation({
     mutationFn: () => tauriInvoke<ScanResult>("scan_external_skills"),
+  });
+}
+
+export function useValidateSkillFolder() {
+  return useMutation({
+    mutationFn: (path: string) =>
+      tauriInvoke<ValidatedSkill>("validate_skill_folder", { path }),
+  });
+}
+
+export function useScanLocalFolder() {
+  return useMutation({
+    mutationFn: (path: string) =>
+      tauriInvoke<ScanResult>("scan_local_folder", { path }),
+  });
+}
+
+export function useImportLocalSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: {
+      name: string;
+      sourcePath: string;
+      sourceTool: string;
+      description?: string;
+    }) => tauriInvoke<Skill>("import_local_skill", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["skills"] });
+    },
   });
 }
 

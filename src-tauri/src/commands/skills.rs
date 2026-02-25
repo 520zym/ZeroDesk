@@ -290,6 +290,136 @@ pub async fn scan_external_skills(
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ValidatedSkill {
+    pub name: String,
+    pub path: String,
+    pub description: Option<String>,
+    pub marker: String,
+}
+
+#[tauri::command]
+pub async fn validate_skill_folder(
+    path: String,
+) -> Result<ValidatedSkill, String> {
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.exists() {
+        return Err(format!("路径不存在: {}", path));
+    }
+    if !dir.is_dir() {
+        return Err("所选路径不是文件夹".to_string());
+    }
+
+    let has_skill_md = dir.join("SKILL.md").exists();
+    let has_rule_md = dir.join("RULE.md").exists();
+    let has_readme = dir.join("README.md").exists();
+    let has_mdc = std::fs::read_dir(&dir)
+        .ok()
+        .map(|rd| rd.flatten().any(|e| {
+            e.path().extension().map(|ext| ext == "mdc").unwrap_or(false)
+        }))
+        .unwrap_or(false);
+
+    if !has_skill_md && !has_rule_md && !has_readme && !has_mdc {
+        return Err("该文件夹不是有效的 Skill，未找到 SKILL.md、RULE.md、README.md 或 .mdc 文件".to_string());
+    }
+
+    let marker = if has_skill_md {
+        "SKILL.md"
+    } else if has_rule_md {
+        "RULE.md"
+    } else if has_mdc {
+        ".mdc"
+    } else {
+        "README.md"
+    };
+
+    let description = if has_skill_md {
+        read_first_description(&dir.join("SKILL.md"))
+    } else if has_readme {
+        read_first_description(&dir.join("README.md"))
+    } else {
+        None
+    };
+
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "未命名 Skill".to_string());
+
+    Ok(ValidatedSkill {
+        name,
+        path: dir.display().to_string(),
+        description,
+        marker: marker.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn scan_local_folder(
+    pool: State<'_, SqlitePool>,
+    path: String,
+) -> Result<ScanResult, String> {
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.exists() {
+        return Err(format!("路径不存在: {}", path));
+    }
+    if !dir.is_dir() {
+        return Err(format!("不是有效的文件夹: {}", path));
+    }
+
+    let existing_paths: Vec<(Option<String>,)> = sqlx::query_as(
+        "SELECT scope_id FROM skills WHERE workspace_id = 'default'"
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let installed_paths: std::collections::HashSet<String> = existing_paths
+        .into_iter()
+        .filter_map(|(p,)| p)
+        .collect();
+
+    let folder_name = dir.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "手动导入".to_string());
+
+    let mut all_skills = scan_dir_for_skills(&dir, &format!("手动 ({})", folder_name));
+
+    let has_skill_md = dir.join("SKILL.md").exists();
+    let has_rule_md = dir.join("RULE.md").exists();
+    let has_readme = dir.join("README.md").exists();
+    if has_skill_md || has_rule_md || has_readme {
+        let desc = if has_skill_md {
+            read_first_description(&dir.join("SKILL.md"))
+        } else if has_readme {
+            read_first_description(&dir.join("README.md"))
+        } else {
+            None
+        };
+        all_skills.push(ScannedSkill {
+            name: folder_name.clone(),
+            path: dir.display().to_string(),
+            source_tool: "手动导入".to_string(),
+            description: desc,
+        });
+    }
+
+    let scanned_paths = vec![ScanPathInfo {
+        tool: "手动导入".to_string(),
+        path: dir.display().to_string(),
+        exists: true,
+        found: all_skills.len(),
+    }];
+
+    all_skills.retain(|s| !installed_paths.contains(&s.path));
+
+    Ok(ScanResult {
+        skills: all_skills,
+        scanned_paths,
+    })
+}
+
 #[tauri::command]
 pub async fn import_scanned_skill(
     pool: State<'_, SqlitePool>,
@@ -336,6 +466,115 @@ pub async fn import_scanned_skill(
         _ => "#6C8FC7",
     })
     .bind(&path)
+    .bind(meta.to_string())
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Skill>("SELECT * FROM skills WHERE id = ?1")
+        .bind(&id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// --- Local skill import (copy to data dir) ---
+
+async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<usize, String> {
+    tokio::fs::create_dir_all(dst)
+        .await
+        .map_err(|e| format!("创建目录 {} 失败: {}", dst.display(), e))?;
+
+    let mut count = 0usize;
+    let mut entries = tokio::fs::read_dir(src)
+        .await
+        .map_err(|e| format!("读取目录 {} 失败: {}", src.display(), e))?;
+
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| format!("遍历目录失败: {}", e))?
+    {
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+
+        let ft = entry
+            .file_type()
+            .await
+            .map_err(|e| format!("读取文件类型失败: {}", e))?;
+
+        if ft.is_dir() {
+            count += Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+        } else {
+            tokio::fs::copy(&src_path, &dst_path)
+                .await
+                .map_err(|e| format!("复制 {} 失败: {}", src_path.display(), e))?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn import_local_skill(
+    pool: State<'_, SqlitePool>,
+    data_dir: State<'_, DataDir>,
+    name: String,
+    source_path: String,
+    source_tool: String,
+    description: Option<String>,
+) -> Result<Skill, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    let src = std::path::PathBuf::from(&source_path);
+
+    if !src.exists() {
+        return Err(format!("源路径不存在: {}", source_path));
+    }
+
+    let skills_base = resolve_skills_dir(pool.inner(), &data_dir.0).await;
+    let dir_name = sanitize_dir_name(&name);
+    let dest = skills_base.join(&dir_name);
+
+    if dest.exists() {
+        return Err(format!("目标目录已存在: {}，请先删除或使用其他名称", dest.display()));
+    }
+
+    if src.is_dir() {
+        let copied = copy_dir_recursive(&src, &dest).await?;
+        if copied == 0 {
+            let _ = tokio::fs::remove_dir_all(&dest).await;
+            return Err("源文件夹为空，没有可复制的文件".to_string());
+        }
+    } else {
+        tokio::fs::create_dir_all(&dest)
+            .await
+            .map_err(|e| format!("创建目录失败: {}", e))?;
+        let file_name = src.file_name().unwrap_or(std::ffi::OsStr::new("SKILL.md"));
+        tokio::fs::copy(&src, dest.join(file_name))
+            .await
+            .map_err(|e| format!("复制文件失败: {}", e))?;
+    }
+
+    let install_path = dest.display().to_string();
+    let id = uuid::Uuid::new_v4().to_string();
+    let meta = serde_json::json!({
+        "source_tool": source_tool,
+        "source_path": source_path,
+        "install_path": install_path,
+    });
+
+    sqlx::query(
+        "INSERT INTO skills (id, workspace_id, name, description, icon_name, icon_bg, scope, scope_id, permissions_json, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'global', ?7, ?8, 'local')",
+    )
+    .bind(&id)
+    .bind(workspace_id)
+    .bind(&name)
+    .bind(&description)
+    .bind(source_tool.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default())
+    .bind("#6C8FC7")
+    .bind(&install_path)
     .bind(meta.to_string())
     .execute(pool.inner())
     .await

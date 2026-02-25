@@ -14,6 +14,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             use tauri::Manager;
             let app_data_dir = app.path().app_data_dir().expect("failed to resolve app data dir");
@@ -85,6 +86,9 @@ pub fn run() {
             skills::search_marketplace_skills,
             skills::install_marketplace_skill,
             skills::scan_external_skills,
+            skills::validate_skill_folder,
+            skills::scan_local_folder,
+            skills::import_local_skill,
             skills::import_scanned_skill,
             // knowledge
             knowledge::list_knowledge_items,

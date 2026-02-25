@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   Search,
   ChevronDown,
@@ -20,6 +21,7 @@ import {
   ScanSearch,
   Import,
   AlertTriangle,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, Modal } from "@/components/ui";
@@ -29,9 +31,11 @@ import {
   useInstallMarketplaceSkill,
   useDeleteSkill,
   useScanExternalSkills,
+  useValidateSkillFolder,
+  useImportLocalSkill,
   useImportScannedSkill,
 } from "@/hooks/useSkills";
-import type { ScannedSkill, ScanPathInfo } from "@/hooks/useSkills";
+import type { ScannedSkill, ScanPathInfo, ValidatedSkill } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
 import type { Skill, MarketplaceSkill } from "@/types";
 
@@ -81,10 +85,18 @@ export default function SkillsPage() {
   const [importedPaths, setImportedPaths] = useState<Set<string>>(new Set());
   const [importError, setImportError] = useState<string | null>(null);
   const [showScanPaths, setShowScanPaths] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const [localPending, setLocalPending] = useState<ValidatedSkill[]>([]);
+  const [localValidating, setLocalValidating] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localImporting, setLocalImporting] = useState(false);
+  const [localImportProgress, setLocalImportProgress] = useState(0);
 
   const { data: installedSkills = [], isLoading: skillsLoading } = useSkills();
   const scanExternal = useScanExternalSkills();
+  const validateFolder = useValidateSkillFolder();
   const importSkill = useImportScannedSkill();
+  const importLocalSkill = useImportLocalSkill();
   const { data: settings } = useSettings();
 
   const hasApiKey = !!settings?.skillsmp_api_key;
@@ -142,6 +154,68 @@ export default function SkillsPage() {
     });
   };
 
+  const handleAddLocalFolder = async () => {
+    setLocalError(null);
+    try {
+      const selected = await openFolderDialog({ directory: true, multiple: false, title: "选择 Skill 文件夹" });
+      if (!selected) return;
+      const folderPath = typeof selected === "string" ? selected : selected;
+      if (localPending.some((s) => s.path === folderPath)) {
+        setLocalError("该文件夹已在列表中");
+        return;
+      }
+      setLocalValidating(true);
+      validateFolder.mutate(folderPath, {
+        onSuccess: (validated) => {
+          setLocalValidating(false);
+          setLocalPending((prev) => [...prev, validated]);
+        },
+        onError: (err) => {
+          setLocalValidating(false);
+          setLocalError(err instanceof Error ? err.message : String(err));
+        },
+      });
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRemoveLocalPending = (path: string) => {
+    setLocalPending((prev) => prev.filter((s) => s.path !== path));
+  };
+
+  const handleConfirmLocalImport = async () => {
+    if (localPending.length === 0) return;
+    setLocalImporting(true);
+    setLocalImportProgress(0);
+    setLocalError(null);
+    let completed = 0;
+    const errors: string[] = [];
+
+    for (const s of localPending) {
+      try {
+        await importLocalSkill.mutateAsync({
+          name: s.name,
+          sourcePath: s.path,
+          sourceTool: "手动导入",
+          description: s.description ?? undefined,
+        });
+      } catch (err) {
+        errors.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      completed++;
+      setLocalImportProgress(completed);
+    }
+
+    setLocalImporting(false);
+    if (errors.length > 0) {
+      setLocalError(`${errors.length} 个导入失败: ${errors[0]}`);
+    } else {
+      setLocalOpen(false);
+      setLocalPending([]);
+    }
+  };
+
   const handleImport = (s: ScannedSkill) => {
     setImportingPath(s.path);
     setImportError(null);
@@ -180,18 +254,27 @@ export default function SkillsPage() {
         >
           <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
           {!isMarket && (
-            <button
-              onClick={handleScan}
-              disabled={scanExternal.isPending}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.78rem] font-medium text-text-secondary hover:text-primary hover:bg-primary-light/40 transition-colors cursor-pointer bg-transparent border border-border-light hover:border-primary/30 disabled:opacity-50 shrink-0"
-            >
-              {scanExternal.isPending ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <ScanSearch size={13} />
-              )}
-              一键扫描
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => { setLocalOpen(true); setLocalPending([]); setLocalError(null); setLocalImportProgress(0); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.78rem] font-medium text-text-secondary hover:text-primary hover:bg-primary-light/40 transition-colors cursor-pointer bg-transparent border border-border-light hover:border-primary/30 shrink-0"
+              >
+                <FolderOpen size={13} />
+                手动导入
+              </button>
+              <button
+                onClick={handleScan}
+                disabled={scanExternal.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.78rem] font-medium text-text-secondary hover:text-primary hover:bg-primary-light/40 transition-colors cursor-pointer bg-transparent border border-border-light hover:border-primary/30 disabled:opacity-50 shrink-0"
+              >
+                {scanExternal.isPending ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <ScanSearch size={13} />
+                )}
+                一键扫描
+              </button>
+            </div>
           )}
         </div>
 
@@ -341,6 +424,123 @@ export default function SkillsPage() {
           </div>
         </div>
       </aside>
+
+      {/* Local import modal */}
+      {localOpen && (
+        <Modal open onClose={() => { if (!localImporting) setLocalOpen(false); }} title="手动导入本地 Skills" width="580px">
+          <div className="space-y-4">
+            <p className="text-[0.78rem] text-text-muted">
+              选择包含 SKILL.md、RULE.md 或 README.md 的文件夹，文件将被复制到 ZeroDesk 数据目录
+            </p>
+
+            {localError && (
+              <div className="px-3 py-2 rounded-lg bg-coral-light text-[#9a5858] text-[0.78rem] font-medium flex items-center gap-2" style={{ animation: "fade-in 0.2s ease-out" }}>
+                <AlertTriangle size={14} className="shrink-0" />
+                <span className="flex-1 truncate">{localError}</span>
+                <button onClick={() => setLocalError(null)} className="shrink-0 bg-transparent border-none cursor-pointer p-0 text-[#9a5858]/60 hover:text-[#9a5858]">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
+            {localPending.length > 0 && (
+              <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
+                {localPending.map((s) => (
+                  <div
+                    key={s.path}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border-light/60 bg-bg/60 hover:border-border-hover transition-colors"
+                    style={{ animation: "fade-in 0.2s ease-out" }}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/15 to-lavender/15 flex items-center justify-center text-[0.65rem] font-bold text-primary shrink-0">
+                      {s.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[0.8rem] font-semibold text-text truncate">{s.name}</span>
+                        <span className="inline-flex px-1.5 py-0.5 rounded text-[0.6rem] font-medium bg-primary-light text-primary shrink-0">
+                          {s.marker}
+                        </span>
+                      </div>
+                      {s.description ? (
+                        <p className="text-[0.7rem] text-text-muted/70 mt-0.5 line-clamp-1">{s.description}</p>
+                      ) : (
+                        <p className="text-[0.68rem] text-text-muted/40 mt-0.5 font-mono truncate">{s.path}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleRemoveLocalPending(s.path)}
+                      disabled={localImporting}
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-md text-text-muted hover:text-danger hover:bg-danger-light transition-colors cursor-pointer bg-transparent border-none shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {localPending.length === 0 && !localValidating && (
+              <div className="flex flex-col items-center py-8 gap-2">
+                <FolderOpen size={28} className="text-text-muted/30" />
+                <p className="text-[0.82rem] text-text-muted">点击下方按钮添加 Skill 文件夹</p>
+              </div>
+            )}
+
+            {localValidating && (
+              <div className="flex items-center justify-center py-4 gap-2">
+                <Loader2 size={16} className="animate-spin text-primary" />
+                <span className="text-[0.78rem] text-text-muted">正在校验文件夹...</span>
+              </div>
+            )}
+
+            <button
+              onClick={handleAddLocalFolder}
+              disabled={localValidating || localImporting}
+              className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg border-2 border-dashed border-border-light hover:border-primary/40 hover:bg-primary-light/20 text-[0.82rem] font-medium text-text-secondary hover:text-primary transition-colors cursor-pointer bg-transparent disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Plus size={15} />
+              添加 Skill 文件夹
+            </button>
+
+            {localImporting && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[0.72rem]">
+                  <span className="text-text-muted">正在导入...</span>
+                  <span className="text-primary font-medium">{localImportProgress} / {localPending.length}</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-bg-alt overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300"
+                    style={{ width: `${(localImportProgress / localPending.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-light/60">
+              <button
+                onClick={() => setLocalOpen(false)}
+                disabled={localImporting}
+                className="px-4 py-2 rounded-lg text-[0.8rem] font-medium text-text-secondary hover:bg-bg-alt transition-colors cursor-pointer border-none bg-transparent disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmLocalImport}
+                disabled={localPending.length === 0 || localImporting}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[0.8rem] font-medium bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {localImporting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Import size={14} />
+                )}
+                {localImporting ? "导入中..." : `确认导入${localPending.length > 0 ? ` (${localPending.length})` : ""}`}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Scan results modal */}
       {scanOpen && (
