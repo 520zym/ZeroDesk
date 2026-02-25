@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
-import type { PromptVersion, WorkflowTemplate } from "@/types";
+import type { PromptVersion, PromptTemplateEntry, WorkflowTemplate } from "@/types";
 
 export function usePromptVersions(agentId: string | null) {
   return useQuery({
@@ -10,6 +10,14 @@ export function usePromptVersions(agentId: string | null) {
         agentId: agentId!,
       }),
     enabled: !!agentId,
+  });
+}
+
+export function usePromptTemplates() {
+  return useQuery({
+    queryKey: ["prompt-templates"],
+    queryFn: () =>
+      tauriInvoke<PromptTemplateEntry[]>("list_prompt_templates"),
   });
 }
 

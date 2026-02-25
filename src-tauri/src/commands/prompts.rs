@@ -3,7 +3,7 @@ use tauri::State;
 
 use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::engine::resolve_model;
-use crate::models::{PromptVersion, WorkflowTemplate};
+use crate::models::{PromptTemplateEntry, PromptVersion, WorkflowTemplate};
 
 #[tauri::command]
 pub async fn list_prompt_versions(
@@ -123,6 +123,38 @@ pub async fn refine_prompt(
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn list_prompt_templates(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<PromptTemplateEntry>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    sqlx::query_as::<_, PromptTemplateEntry>(
+        "SELECT
+           a.id        AS agent_id,
+           a.name      AS agent_name,
+           a.avatar_char,
+           a.avatar_color,
+           a.role_description,
+           pv.content  AS prompt_content,
+           pv.version,
+           pv.note,
+           pv.created_at AS version_created_at
+         FROM agents a
+         INNER JOIN prompt_versions pv ON pv.agent_id = a.id
+         WHERE a.workspace_id = ?1
+           AND pv.version = (
+             SELECT MAX(pv2.version)
+             FROM prompt_versions pv2
+             WHERE pv2.agent_id = a.id
+           )
+         ORDER BY a.name ASC",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

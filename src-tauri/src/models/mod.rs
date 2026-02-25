@@ -214,6 +214,19 @@ pub struct PromptVersion {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PromptTemplateEntry {
+    pub agent_id: String,
+    pub agent_name: String,
+    pub avatar_char: Option<String>,
+    pub avatar_color: Option<String>,
+    pub role_description: Option<String>,
+    pub prompt_content: String,
+    pub version: i64,
+    pub note: Option<String>,
+    pub version_created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct WorkflowTemplate {
     pub id: String,
     pub workspace_id: String,

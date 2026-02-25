@@ -19,9 +19,12 @@ import {
   Search,
   CheckCircle2,
   Package,
+  BookOpen,
+  Eye,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Avatar, Modal, Toggle } from "@/components/ui";
+import { Avatar, Modal, Toggle, MarkdownContent } from "@/components/ui";
 import {
   useAgents,
   useCreateAgent,
@@ -30,6 +33,7 @@ import {
   useOptimizePrompt,
 } from "@/hooks/useAgents";
 import { useWorkspaceModels, useProviders } from "@/hooks/useModels";
+import { usePromptTemplates } from "@/hooks/usePrompts";
 import { useSkills } from "@/hooks/useSkills";
 import type { Agent, Model, ModelProvider, Skill } from "@/types";
 
@@ -310,6 +314,7 @@ export default function AgentsPage() {
   const { data: workspaceModels = [] } = useWorkspaceModels();
   const { data: providers = [] } = useProviders();
   const { data: installedSkills = [] } = useSkills();
+  const { data: promptTemplates = [] } = usePromptTemplates();
   const createAgent = useCreateAgent();
   const updateAgent = useUpdateAgent();
   const deleteAgent = useDeleteAgent();
@@ -322,6 +327,11 @@ export default function AgentsPage() {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [skillSearch, setSkillSearch] = useState("");
   const [detailSkillNames, setDetailSkillNames] = useState<Set<string>>(new Set());
+  const [templatePickerTarget, setTemplatePickerTarget] = useState<"create" | "detail" | null>(null);
+  const [templateSearch, setTemplateSearch] = useState("");
+
+  const [detailPromptView, setDetailPromptView] = useState<"preview" | "edit">("preview");
+  const [createPromptView, setCreatePromptView] = useState<"preview" | "edit">("edit");
 
   // --- detail panel editable state ---
   const [detailName, setDetailName] = useState("");
@@ -346,6 +356,7 @@ export default function AgentsPage() {
       setDetailTools(parseToolsJson(selectedAgent.tools_json));
       setDetailSkillNames(new Set(parseSkillsJson(selectedAgent.skills_json)));
       setDetailDirty(false);
+      setDetailPromptView("preview");
     }
   }, [selectedAgent?.id, selectedAgent?.updated_at]);
 
@@ -424,6 +435,7 @@ export default function AgentsPage() {
     setCreateModel("");
     setCreateFallback("");
     setCreateTools({ search: true, file: false, exec: false });
+    setCreatePromptView("edit");
   };
 
   const handleCreate = () => {
@@ -489,7 +501,10 @@ export default function AgentsPage() {
         currentPrompt: createPrompt.trim(),
       },
       {
-        onSuccess: (result) => setCreatePrompt(result),
+        onSuccess: (result) => {
+          setCreatePrompt(result);
+          setCreatePromptView("preview");
+        },
       },
     );
   };
@@ -506,10 +521,39 @@ export default function AgentsPage() {
         onSuccess: (result) => {
           setDetailPrompt(result);
           setDetailDirty(true);
+          setDetailPromptView("preview");
         },
       },
     );
   };
+
+  const filteredTemplates = useMemo(() => {
+    if (!templateSearch.trim()) return promptTemplates;
+    const q = templateSearch.toLowerCase();
+    return promptTemplates.filter(
+      (t) =>
+        t.agent_name.toLowerCase().includes(q) ||
+        t.role_description?.toLowerCase().includes(q) ||
+        t.prompt_content.toLowerCase().includes(q),
+    );
+  }, [promptTemplates, templateSearch]);
+
+  function openTemplatePicker(target: "create" | "detail") {
+    setTemplateSearch("");
+    setTemplatePickerTarget(target);
+  }
+
+  function handleImportTemplate(prompt: string) {
+    if (templatePickerTarget === "create") {
+      setCreatePrompt(prompt);
+      setCreatePromptView("preview");
+    } else if (templatePickerTarget === "detail") {
+      setDetailPrompt(prompt);
+      setDetailDirty(true);
+      setDetailPromptView("preview");
+    }
+    setTemplatePickerTarget(null);
+  }
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -727,33 +771,86 @@ export default function AgentsPage() {
                 <label className="text-[0.78rem] font-medium text-text">
                   系统提示词
                 </label>
-                <button
-                  onClick={handleOptimizeDetail}
-                  disabled={optimizePrompt.isPending}
-                  className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {optimizePrompt.isPending ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={12} />
-                  )}
-                  AI 优化
-                </button>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={() => openTemplatePicker("detail")}
+                    className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-text-secondary hover:text-primary transition-colors cursor-pointer"
+                  >
+                    <BookOpen size={12} />
+                    从模板导入
+                  </button>
+                  <span className="text-border-light text-[0.6rem]">|</span>
+                  <button
+                    onClick={handleOptimizeDetail}
+                    disabled={optimizePrompt.isPending}
+                    className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {optimizePrompt.isPending ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={12} />
+                    )}
+                    AI 优化
+                  </button>
+                  <span className="text-border-light text-[0.6rem]">|</span>
+                  <div className="flex items-center bg-bg rounded-md p-0.5 border border-border-light">
+                    <button
+                      onClick={() => setDetailPromptView("preview")}
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[0.68rem] font-medium transition-colors cursor-pointer",
+                        detailPromptView === "preview"
+                          ? "bg-primary-light text-primary-active"
+                          : "text-text-muted hover:text-text",
+                      )}
+                    >
+                      <Eye size={11} />
+                      预览
+                    </button>
+                    <button
+                      onClick={() => setDetailPromptView("edit")}
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[0.68rem] font-medium transition-colors cursor-pointer",
+                        detailPromptView === "edit"
+                          ? "bg-primary-light text-primary-active"
+                          : "text-text-muted hover:text-text",
+                      )}
+                    >
+                      <Pencil size={11} />
+                      编辑
+                    </button>
+                  </div>
+                </div>
               </div>
-              <textarea
-                value={detailPrompt}
-                onChange={(e) => {
-                  setDetailPrompt(e.target.value);
-                  setDetailDirty(true);
-                }}
-                rows={5}
-                className={cn(
-                  "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
-                  "text-[0.78rem] text-text leading-relaxed resize-none",
-                  "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                  "transition-colors",
-                )}
-              />
+              {detailPromptView === "preview" ? (
+                <div
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-4 py-3",
+                    "text-[0.78rem] text-text leading-relaxed",
+                    "min-h-[120px] max-h-[240px] overflow-y-auto",
+                  )}
+                >
+                  {detailPrompt.trim() ? (
+                    <MarkdownContent content={detailPrompt} />
+                  ) : (
+                    <p className="text-text-muted italic">暂无提示词内容</p>
+                  )}
+                </div>
+              ) : (
+                <textarea
+                  value={detailPrompt}
+                  onChange={(e) => {
+                    setDetailPrompt(e.target.value);
+                    setDetailDirty(true);
+                  }}
+                  rows={5}
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
+                    "text-[0.78rem] text-text leading-relaxed resize-none",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                    "transition-colors",
+                  )}
+                />
+              )}
             </div>
 
             {/* Model + Fallback */}
@@ -959,34 +1056,87 @@ export default function AgentsPage() {
               <label className="text-[0.78rem] font-medium text-text">
                 系统提示词
               </label>
-              <button
-                onClick={handleOptimizeCreate}
-                disabled={
-                  optimizePrompt.isPending ||
-                  (!createName.trim() && !createRole.trim())
-                }
-                className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {optimizePrompt.isPending ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Sparkles size={12} />
-                )}
-                AI 优化
-              </button>
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => openTemplatePicker("create")}
+                  className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-text-secondary hover:text-primary transition-colors cursor-pointer"
+                >
+                  <BookOpen size={12} />
+                  从模板导入
+                </button>
+                <span className="text-border-light text-[0.6rem]">|</span>
+                <button
+                  onClick={handleOptimizeCreate}
+                  disabled={
+                    optimizePrompt.isPending ||
+                    (!createName.trim() && !createRole.trim())
+                  }
+                  className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {optimizePrompt.isPending ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={12} />
+                  )}
+                  AI 优化
+                </button>
+                <span className="text-border-light text-[0.6rem]">|</span>
+                <div className="flex items-center bg-bg rounded-md p-0.5 border border-border-light">
+                  <button
+                    onClick={() => setCreatePromptView("preview")}
+                    className={cn(
+                      "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[0.68rem] font-medium transition-colors cursor-pointer",
+                      createPromptView === "preview"
+                        ? "bg-primary-light text-primary-active"
+                        : "text-text-muted hover:text-text",
+                    )}
+                  >
+                    <Eye size={11} />
+                    预览
+                  </button>
+                  <button
+                    onClick={() => setCreatePromptView("edit")}
+                    className={cn(
+                      "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[0.68rem] font-medium transition-colors cursor-pointer",
+                      createPromptView === "edit"
+                        ? "bg-primary-light text-primary-active"
+                        : "text-text-muted hover:text-text",
+                    )}
+                  >
+                    <Pencil size={11} />
+                    编辑
+                  </button>
+                </div>
+              </div>
             </div>
-            <textarea
-              value={createPrompt}
-              onChange={(e) => setCreatePrompt(e.target.value)}
-              rows={4}
-              placeholder="描述此 Agent 的行为规则和输出格式要求…"
-              className={cn(
-                "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
-                "text-[0.78rem] text-text leading-relaxed resize-none placeholder:text-text-muted",
-                "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                "transition-colors",
-              )}
-            />
+            {createPromptView === "preview" ? (
+              <div
+                className={cn(
+                  "w-full rounded-lg border border-border-light bg-bg px-4 py-3",
+                  "text-[0.78rem] text-text leading-relaxed",
+                  "min-h-[100px] max-h-[240px] overflow-y-auto",
+                )}
+              >
+                {createPrompt.trim() ? (
+                  <MarkdownContent content={createPrompt} />
+                ) : (
+                  <p className="text-text-muted italic">暂无提示词内容</p>
+                )}
+              </div>
+            ) : (
+              <textarea
+                value={createPrompt}
+                onChange={(e) => setCreatePrompt(e.target.value)}
+                rows={4}
+                placeholder="描述此 Agent 的行为规则和输出格式要求…"
+                className={cn(
+                  "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
+                  "text-[0.78rem] text-text leading-relaxed resize-none placeholder:text-text-muted",
+                  "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                  "transition-colors",
+                )}
+              />
+            )}
             {optimizePrompt.isError && (
               <p className="mt-1 text-[0.72rem] text-danger">
                 {String(optimizePrompt.error)}
@@ -1225,6 +1375,107 @@ export default function AgentsPage() {
               )}
             >
               完成
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Prompt Template Picker Modal */}
+      <Modal
+        open={!!templatePickerTarget}
+        onClose={() => setTemplatePickerTarget(null)}
+        title="从 Agent 模板导入提示词"
+        width="560px"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.76rem] text-text-muted">
+            选择一个已有 Agent 的系统提示词作为模板导入，导入后可继续编辑
+          </p>
+
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+            />
+            <input
+              type="text"
+              placeholder="搜索 Agent 名称、角色或提示词..."
+              value={templateSearch}
+              onChange={(e) => setTemplateSearch(e.target.value)}
+              className={cn(
+                "w-full pl-8 pr-3 py-2 rounded-lg bg-bg text-[0.82rem] text-text",
+                "border border-border-light focus:border-primary/40 focus:outline-none",
+                "transition-colors placeholder:text-text-muted",
+              )}
+            />
+          </div>
+
+          <div className="max-h-[380px] overflow-y-auto -mx-1 px-1 space-y-1.5">
+            {filteredTemplates.length === 0 ? (
+              <div className="flex flex-col items-center py-10 gap-2">
+                <BookOpen size={28} className="text-text-muted/30" />
+                <p className="text-[0.82rem] text-text-muted">
+                  {promptTemplates.length === 0
+                    ? "暂无 Prompt 模板"
+                    : "没有匹配的模板"}
+                </p>
+                <p className="text-[0.72rem] text-text-muted/60">
+                  {promptTemplates.length === 0
+                    ? "前往 Prompt 管理页面为 Agent 保存 Prompt 版本"
+                    : "尝试其他搜索关键词"}
+                </p>
+              </div>
+            ) : (
+              filteredTemplates.map((tpl) => (
+                <button
+                  key={tpl.agent_id}
+                  onClick={() => handleImportTemplate(tpl.prompt_content)}
+                  className={cn(
+                    "w-full flex items-start gap-3 px-3 py-3 rounded-lg border text-left transition-all",
+                    "border-border-light/60 bg-bg/60 hover:border-primary/40 hover:bg-primary-light/20 cursor-pointer",
+                  )}
+                >
+                  <Avatar
+                    char={tpl.avatar_char ?? tpl.agent_name.charAt(0)}
+                    color={tpl.avatar_color ?? "bg-primary"}
+                    size="md"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[0.8rem] font-semibold text-text truncate">
+                        {tpl.agent_name}
+                      </span>
+                      <span className="text-[0.62rem] text-text-muted font-medium shrink-0">
+                        v{tpl.version}
+                      </span>
+                      {tpl.role_description && (
+                        <span className="text-[0.68rem] text-text-muted truncate">
+                          {tpl.role_description}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[0.72rem] text-text-secondary mt-1 line-clamp-2 leading-relaxed">
+                      {tpl.prompt_content}
+                    </p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-border-light/60">
+            <span className="text-[0.72rem] text-text-muted">
+              共 {filteredTemplates.length} 个 Prompt 模板
+            </span>
+            <button
+              onClick={() => setTemplatePickerTarget(null)}
+              className={cn(
+                "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
+                "text-text-secondary hover:text-text hover:bg-bg-alt",
+                "transition-colors cursor-pointer",
+              )}
+            >
+              取消
             </button>
           </div>
         </div>

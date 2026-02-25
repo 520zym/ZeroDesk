@@ -266,6 +266,18 @@ export interface PromptVersion {
   created_at: string;
 }
 
+export interface PromptTemplateEntry {
+  agent_id: string;
+  agent_name: string;
+  avatar_char: string | null;
+  avatar_color: string | null;
+  role_description: string | null;
+  prompt_content: string;
+  version: number;
+  note: string | null;
+  version_created_at: string;
+}
+
 export interface WorkflowTemplate {
   id: string;
   workspace_id: string;
