@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Plus,
   Pencil,
@@ -10,6 +10,9 @@ import {
   Loader2,
   UserPlus,
   UserMinus,
+  Search,
+  Sparkles,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, Modal } from "@/components/ui";
@@ -24,7 +27,8 @@ import {
   useRemoveTeamMember,
 } from "@/hooks/useTeams";
 import { useAgents } from "@/hooks/useAgents";
-import type { Team, Agent } from "@/types";
+import { useSkills } from "@/hooks/useSkills";
+import type { Team, Agent, Skill } from "@/types";
 
 const COLOR_OPTIONS = ["primary", "sage", "coral", "lavender", "sand"] as const;
 
@@ -84,6 +88,7 @@ export default function TeamsPage() {
   const { data: teams = [], isLoading, error } = useTeams();
   const { data: agents = [] } = useAgents();
   const { data: allMemberships = [] } = useAllTeamMembers();
+  const { data: installedSkills = [] } = useSkills();
 
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const { data: selectedMembers = [] } = useTeamMembers(selectedTeamId);
@@ -92,6 +97,10 @@ export default function TeamsPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skillSearch, setSkillSearch] = useState("");
+  const [pickedSkillNames, setPickedSkillNames] = useState<Set<string>>(new Set());
+  const [savingSkills, setSavingSkills] = useState(false);
 
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
@@ -203,6 +212,59 @@ export default function TeamsPage() {
     if (!selectedTeamId) return;
     await removeMember.mutateAsync({ teamId: selectedTeamId, agentId });
   }
+
+  function openSkillsModal() {
+    if (!selectedTeam) return;
+    const current = parseSharedSkills(selectedTeam.shared_skills_json);
+    setPickedSkillNames(new Set(current));
+    setSkillSearch("");
+    setSkillsOpen(true);
+  }
+
+  function toggleSkillPick(name: string) {
+    setPickedSkillNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  async function handleSaveSkills() {
+    if (!selectedTeam) return;
+    setSavingSkills(true);
+    try {
+      await updateTeam.mutateAsync({
+        id: selectedTeam.id,
+        sharedSkillsJson: JSON.stringify(Array.from(pickedSkillNames)),
+      });
+      setSkillsOpen(false);
+    } catch {
+      /* handled by RQ */
+    } finally {
+      setSavingSkills(false);
+    }
+  }
+
+  async function handleRemoveSkill(skillName: string) {
+    if (!selectedTeam) return;
+    const current = parseSharedSkills(selectedTeam.shared_skills_json);
+    const updated = current.filter((s) => s !== skillName);
+    await updateTeam.mutateAsync({
+      id: selectedTeam.id,
+      sharedSkillsJson: JSON.stringify(updated),
+    });
+  }
+
+  const filteredSkills = useMemo(() => {
+    if (!skillSearch.trim()) return installedSkills;
+    const q = skillSearch.toLowerCase();
+    return installedSkills.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.description?.toLowerCase().includes(q),
+    );
+  }, [installedSkills, skillSearch]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -455,29 +517,56 @@ export default function TeamsPage() {
 
                 {/* Shared Skills */}
                 <div className="mb-5">
-                  <h3 className="text-[0.78rem] font-medium text-text mb-2">
-                    共享 Skills
-                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-[0.78rem] font-medium text-text">
+                      共享 Skills
+                    </h3>
+                    <button
+                      onClick={openSkillsModal}
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[0.72rem] font-medium",
+                        "text-primary hover:bg-primary-light/60 transition-colors cursor-pointer",
+                      )}
+                    >
+                      <Sparkles size={12} />
+                      管理 Skills
+                    </button>
+                  </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {parseSharedSkills(selectedTeam.shared_skills_json).map(
                       (s, si) => (
                         <span
                           key={s}
                           className={cn(
-                            "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium",
+                            "group/skill inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium",
                             variantMap[skillVariant(si)] ??
                               "bg-bg-alt text-text-secondary",
                           )}
                         >
                           {s}
+                          <button
+                            onClick={() => handleRemoveSkill(s)}
+                            className="w-3.5 h-3.5 rounded-full flex items-center justify-center opacity-0 group-hover/skill:opacity-100 hover:bg-black/10 transition-all cursor-pointer"
+                          >
+                            <X size={8} />
+                          </button>
                         </span>
                       ),
                     )}
                     {parseSharedSkills(selectedTeam.shared_skills_json)
                       .length === 0 && (
-                      <span className="text-[0.72rem] text-text-muted">
-                        暂无共享 Skills
-                      </span>
+                      <button
+                        onClick={openSkillsModal}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
+                          "border-2 border-dashed border-border-light",
+                          "text-[0.72rem] text-text-muted hover:text-primary hover:border-primary/40",
+                          "transition-colors cursor-pointer",
+                        )}
+                      >
+                        <Plus size={12} />
+                        添加 Skills
+                      </button>
                     )}
                   </div>
                 </div>
@@ -814,6 +903,175 @@ export default function TeamsPage() {
             >
               关闭
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Manage Skills Modal */}
+      <Modal
+        open={skillsOpen}
+        onClose={() => setSkillsOpen(false)}
+        title={`管理共享 Skills · ${selectedTeam?.name ?? ""}`}
+        width="560px"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.76rem] text-text-muted">
+            选择要分配给该团队的 Skills，团队中所有 Agent 将共享这些能力
+          </p>
+
+          {/* Search */}
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+            />
+            <input
+              type="text"
+              placeholder="搜索 Skill..."
+              value={skillSearch}
+              onChange={(e) => setSkillSearch(e.target.value)}
+              className={cn(
+                "w-full pl-8 pr-3 py-2 rounded-lg bg-bg text-[0.82rem] text-text",
+                "border border-border-light focus:border-primary/40 focus:outline-none",
+                "transition-colors placeholder:text-text-muted",
+              )}
+            />
+          </div>
+
+          {/* Selected count */}
+          {pickedSkillNames.size > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[0.72rem] text-text-muted shrink-0">
+                已选 {pickedSkillNames.size} 个:
+              </span>
+              {Array.from(pickedSkillNames).map((name, i) => (
+                <span
+                  key={name}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium",
+                    variantMap[skillVariant(i)] ?? "bg-bg-alt text-text-secondary",
+                  )}
+                >
+                  {name}
+                  <button
+                    onClick={() => toggleSkillPick(name)}
+                    className="w-3 h-3 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors cursor-pointer"
+                  >
+                    <X size={7} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Skill list */}
+          <div className="max-h-[340px] overflow-y-auto -mx-1 px-1 space-y-1">
+            {installedSkills.length === 0 ? (
+              <div className="flex flex-col items-center py-10 gap-2">
+                <Package size={28} className="text-text-muted/30" />
+                <p className="text-[0.82rem] text-text-muted">暂无已安装的 Skill</p>
+                <p className="text-[0.72rem] text-text-muted/60">
+                  前往 Skills 管理页面安装
+                </p>
+              </div>
+            ) : filteredSkills.length === 0 ? (
+              <div className="flex flex-col items-center py-8 gap-2">
+                <Search size={22} className="text-text-muted/30" />
+                <p className="text-[0.78rem] text-text-muted">
+                  未找到匹配的 Skill
+                </p>
+              </div>
+            ) : (
+              filteredSkills.map((skill) => {
+                const selected = pickedSkillNames.has(skill.name);
+                return (
+                  <button
+                    key={skill.id}
+                    onClick={() => toggleSkillPick(skill.name)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left",
+                      "transition-all cursor-pointer",
+                      selected
+                        ? "border-primary bg-primary-light/40"
+                        : "border-border-light/60 bg-bg/60 hover:border-primary/30 hover:bg-primary-light/20",
+                    )}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-[0.65rem] font-bold text-white shrink-0"
+                      style={{ backgroundColor: skill.icon_bg ?? "#6C8FC7" }}
+                    >
+                      {skill.name.slice(0, 2)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[0.8rem] font-semibold text-text truncate">
+                          {skill.name}
+                        </span>
+                        {skill.version && (
+                          <span className="text-[0.62rem] text-text-muted font-medium">
+                            v{skill.version}
+                          </span>
+                        )}
+                      </div>
+                      {skill.description && (
+                        <p className="text-[0.7rem] text-text-muted/70 mt-0.5 line-clamp-1">
+                          {skill.description}
+                        </p>
+                      )}
+                    </div>
+                    <div
+                      className={cn(
+                        "w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all",
+                        selected
+                          ? "bg-primary border-primary"
+                          : "border-border-light bg-transparent",
+                      )}
+                    >
+                      {selected && (
+                        <CheckCircle2 size={12} className="text-white" strokeWidth={3} />
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-between pt-2 border-t border-border-light/60">
+            <span className="text-[0.72rem] text-text-muted">
+              共 {installedSkills.length} 个可用 Skill
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSkillsOpen(false)}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
+                  "text-text-secondary hover:text-text hover:bg-bg-alt",
+                  "transition-colors cursor-pointer",
+                )}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveSkills}
+                disabled={savingSkills}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[0.8rem] font-medium",
+                  "bg-primary text-white",
+                  "hover:bg-primary-hover active:bg-primary-active",
+                  "transition-colors cursor-pointer shadow-sm",
+                  savingSkills && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                {savingSkills ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Sparkles size={14} />
+                )}
+                {savingSkills ? "保存中…" : "确认保存"}
+              </button>
+            </div>
           </div>
         </div>
       </Modal>

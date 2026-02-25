@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   Plus,
@@ -18,6 +18,9 @@ import {
   Wrench,
   Loader2,
   Bot,
+  Search,
+  CheckCircle2,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, Modal, Toggle } from "@/components/ui";
@@ -29,7 +32,8 @@ import {
   useOptimizePrompt,
 } from "@/hooks/useAgents";
 import { useWorkspaceModels, useProviders } from "@/hooks/useModels";
-import type { Agent, Model, ModelProvider } from "@/types";
+import { useSkills } from "@/hooks/useSkills";
+import type { Agent, Model, ModelProvider, Skill } from "@/types";
 
 const AVATAR_COLORS = [
   "bg-primary",
@@ -324,6 +328,7 @@ export default function AgentsPage() {
   const { data: agents = [], isLoading, error } = useAgents();
   const { data: workspaceModels = [] } = useWorkspaceModels();
   const { data: providers = [] } = useProviders();
+  const { data: installedSkills = [] } = useSkills();
   const createAgent = useCreateAgent();
   const updateAgent = useUpdateAgent();
   const deleteAgent = useDeleteAgent();
@@ -333,6 +338,9 @@ export default function AgentsPage() {
   const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skillSearch, setSkillSearch] = useState("");
+  const [detailSkillNames, setDetailSkillNames] = useState<Set<string>>(new Set());
 
   // --- detail panel editable state ---
   const [detailName, setDetailName] = useState("");
@@ -355,23 +363,66 @@ export default function AgentsPage() {
       setDetailModel(selectedAgent.model_id ?? "");
       setDetailFallback(selectedAgent.fallback_model_id ?? "");
       setDetailTools(parseToolsJson(selectedAgent.tools_json));
+      setDetailSkillNames(new Set(parseSkillsJson(selectedAgent.skills_json)));
       setDetailDirty(false);
     }
   }, [selectedAgent?.id, selectedAgent?.updated_at]);
 
   const handleDetailSave = useCallback(() => {
     if (!selectedAgent || !detailDirty) return;
-    updateAgent.mutate({
-      id: selectedAgent.id,
-      name: detailName.trim() || undefined,
-      roleDescription: detailRole.trim() || undefined,
-      systemPrompt: detailPrompt,
-      modelId: detailModel || undefined,
-      fallbackModelId: detailFallback || undefined,
-      toolsJson: toolsToJson(detailTools),
+    updateAgent.mutate(
+      {
+        id: selectedAgent.id,
+        name: detailName.trim() || undefined,
+        roleDescription: detailRole.trim() || undefined,
+        systemPrompt: detailPrompt,
+        modelId: detailModel || undefined,
+        fallbackModelId: detailFallback || undefined,
+        toolsJson: toolsToJson(detailTools),
+        skillsJson: JSON.stringify(Array.from(detailSkillNames)),
+      },
+      {
+        onSuccess: () => {
+          setDetailDirty(false);
+          setSelectedId(null);
+        },
+      },
+    );
+  }, [selectedAgent, detailName, detailRole, detailPrompt, detailModel, detailFallback, detailTools, detailSkillNames, detailDirty]);
+
+  function openSkillsModal() {
+    setSkillSearch("");
+    setSkillsOpen(true);
+  }
+
+  function toggleSkillPick(name: string) {
+    setDetailSkillNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
     });
-    setDetailDirty(false);
-  }, [selectedAgent, detailName, detailRole, detailPrompt, detailModel, detailFallback, detailTools, detailDirty]);
+    setDetailDirty(true);
+  }
+
+  function removeSkill(name: string) {
+    setDetailSkillNames((prev) => {
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+    setDetailDirty(true);
+  }
+
+  const filteredSkillsList = useMemo(() => {
+    if (!skillSearch.trim()) return installedSkills;
+    const q = skillSearch.toLowerCase();
+    return installedSkills.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.description?.toLowerCase().includes(q),
+    );
+  }, [installedSkills, skillSearch]);
 
   // --- create form state ---
   const [createName, setCreateName] = useState("");
@@ -467,7 +518,7 @@ export default function AgentsPage() {
     optimizePrompt.mutate(
       {
         agentName: detailName.trim() || selectedAgent.name,
-        roleDescription: detailRole.trim() || selectedAgent.role_description ?? "",
+        roleDescription: detailRole.trim() || (selectedAgent.role_description ?? ""),
         currentPrompt: detailPrompt,
       },
       {
@@ -664,8 +715,8 @@ export default function AgentsPage() {
               <Avatar
                 char={
                   detailName.trim().charAt(0) ||
-                  selectedAgent.avatar_char ??
-                  selectedAgent.name.charAt(0)
+                  (selectedAgent.avatar_char ??
+                  selectedAgent.name.charAt(0))
                 }
                 color={selectedAgent.avatar_color ?? "bg-primary"}
                 size="xl"
@@ -808,25 +859,50 @@ export default function AgentsPage() {
             </div>
 
             {/* Private Skills */}
-            {parseSkillsJson(selectedAgent.skills_json).length > 0 && (
-              <div>
-                <label className="block text-[0.78rem] font-medium text-text mb-2">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[0.78rem] font-medium text-text">
                   私有 Skills
                 </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {parseSkillsJson(selectedAgent.skills_json).map(
-                    (skill) => (
-                      <span
-                        key={skill}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium bg-primary-light text-primary-active"
-                      >
-                        {skill}
-                      </span>
-                    ),
-                  )}
-                </div>
+                <button
+                  onClick={openSkillsModal}
+                  className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer"
+                >
+                  <Sparkles size={12} />
+                  管理 Skills
+                </button>
               </div>
-            )}
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from(detailSkillNames).map((skill) => (
+                  <span
+                    key={skill}
+                    className="group/skill inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium bg-primary-light text-primary-active"
+                  >
+                    {skill}
+                    <button
+                      onClick={() => removeSkill(skill)}
+                      className="w-3.5 h-3.5 rounded-full flex items-center justify-center opacity-0 group-hover/skill:opacity-100 hover:bg-primary/20 transition-all cursor-pointer"
+                    >
+                      <X size={8} />
+                    </button>
+                  </span>
+                ))}
+                {detailSkillNames.size === 0 && (
+                  <button
+                    onClick={openSkillsModal}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
+                      "border-2 border-dashed border-border-light",
+                      "text-[0.72rem] text-text-muted hover:text-primary hover:border-primary/40",
+                      "transition-colors cursor-pointer",
+                    )}
+                  >
+                    <Plus size={12} />
+                    添加 Skills
+                  </button>
+                )}
+              </div>
+            </div>
 
             {/* Actions */}
             <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -1043,6 +1119,146 @@ export default function AgentsPage() {
                 <Loader2 size={14} className="animate-spin" />
               )}
               创建 Agent
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Skills Picker Modal */}
+      <Modal
+        open={skillsOpen}
+        onClose={() => setSkillsOpen(false)}
+        title={`管理私有 Skills · ${selectedAgent?.name ?? ""}`}
+        width="560px"
+      >
+        <div className="space-y-4">
+          <p className="text-[0.76rem] text-text-muted">
+            为该 Agent 分配专属 Skills，勾选后点击外部「保存修改」生效
+          </p>
+
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+            />
+            <input
+              type="text"
+              placeholder="搜索 Skill..."
+              value={skillSearch}
+              onChange={(e) => setSkillSearch(e.target.value)}
+              className={cn(
+                "w-full pl-8 pr-3 py-2 rounded-lg bg-bg text-[0.82rem] text-text",
+                "border border-border-light focus:border-primary/40 focus:outline-none",
+                "transition-colors placeholder:text-text-muted",
+              )}
+            />
+          </div>
+
+          {detailSkillNames.size > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[0.72rem] text-text-muted shrink-0">
+                已选 {detailSkillNames.size} 个:
+              </span>
+              {Array.from(detailSkillNames).map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-primary-light text-primary-active"
+                >
+                  {name}
+                  <button
+                    onClick={() => toggleSkillPick(name)}
+                    className="w-3 h-3 rounded-full flex items-center justify-center hover:bg-primary/20 transition-colors cursor-pointer"
+                  >
+                    <X size={7} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="max-h-[340px] overflow-y-auto -mx-1 px-1 space-y-1">
+            {installedSkills.length === 0 ? (
+              <div className="flex flex-col items-center py-10 gap-2">
+                <Package size={28} className="text-text-muted/30" />
+                <p className="text-[0.82rem] text-text-muted">暂无已安装的 Skill</p>
+                <p className="text-[0.72rem] text-text-muted/60">
+                  前往 Skills 管理页面安装
+                </p>
+              </div>
+            ) : filteredSkillsList.length === 0 ? (
+              <div className="flex flex-col items-center py-8 gap-2">
+                <Search size={22} className="text-text-muted/30" />
+                <p className="text-[0.78rem] text-text-muted">未找到匹配的 Skill</p>
+              </div>
+            ) : (
+              filteredSkillsList.map((skill) => {
+                const selected = detailSkillNames.has(skill.name);
+                return (
+                  <button
+                    key={skill.id}
+                    onClick={() => toggleSkillPick(skill.name)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left",
+                      "transition-all cursor-pointer",
+                      selected
+                        ? "border-primary bg-primary-light/40"
+                        : "border-border-light/60 bg-bg/60 hover:border-primary/30 hover:bg-primary-light/20",
+                    )}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-[0.65rem] font-bold text-white shrink-0"
+                      style={{ backgroundColor: skill.icon_bg ?? "#6C8FC7" }}
+                    >
+                      {skill.name.slice(0, 2)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[0.8rem] font-semibold text-text truncate">
+                          {skill.name}
+                        </span>
+                        {skill.version && (
+                          <span className="text-[0.62rem] text-text-muted font-medium">
+                            v{skill.version}
+                          </span>
+                        )}
+                      </div>
+                      {skill.description && (
+                        <p className="text-[0.7rem] text-text-muted/70 mt-0.5 line-clamp-1">
+                          {skill.description}
+                        </p>
+                      )}
+                    </div>
+                    <div
+                      className={cn(
+                        "w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all",
+                        selected
+                          ? "bg-primary border-primary"
+                          : "border-border-light bg-transparent",
+                      )}
+                    >
+                      {selected && (
+                        <CheckCircle2 size={12} className="text-white" strokeWidth={3} />
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-border-light/60">
+            <span className="text-[0.72rem] text-text-muted">
+              共 {installedSkills.length} 个可用 Skill
+            </span>
+            <button
+              onClick={() => setSkillsOpen(false)}
+              className={cn(
+                "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
+                "bg-primary text-white hover:bg-primary-hover",
+                "transition-colors cursor-pointer shadow-sm",
+              )}
+            >
+              完成
             </button>
           </div>
         </div>
