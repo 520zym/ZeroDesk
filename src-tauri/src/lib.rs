@@ -52,6 +52,7 @@ pub fn run() {
             agents::create_agent,
             agents::update_agent,
             agents::delete_agent,
+            agents::optimize_prompt,
             // teams
             teams::list_teams,
             teams::create_team,

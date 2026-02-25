@@ -64,3 +64,13 @@ export function useDeleteAgent() {
     },
   });
 }
+
+export function useOptimizePrompt() {
+  return useMutation({
+    mutationFn: (params: {
+      agentName: string;
+      roleDescription: string;
+      currentPrompt: string;
+    }) => tauriInvoke<string>("optimize_prompt", params),
+  });
+}

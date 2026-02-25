@@ -40,15 +40,20 @@ export interface TaskStats {
 
 export interface Agent {
   id: string;
+  workspace_id: string;
   name: string;
-  role: string;
+  avatar_char: string | null;
+  avatar_color: string | null;
+  role_description: string | null;
   system_prompt: string | null;
   model_id: string | null;
-  temperature: number;
-  max_tokens: number;
-  enabled: boolean;
+  fallback_model_id: string | null;
+  tools_json: string | null;
+  skills_json: string | null;
+  is_template: number | null;
   created_at: string;
   updated_at: string;
+  last_used_at: string | null;
 }
 
 // ─── Team ────────────────────────────────────────────────────

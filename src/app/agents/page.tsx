@@ -1,8 +1,11 @@
-import { useState } from "react";
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Plus,
   Copy,
-  Archive,
+  Trash2,
   Pencil,
   Globe,
   FileText,
@@ -13,30 +16,32 @@ import {
   Clock,
   Cpu,
   Wrench,
+  Loader2,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, Modal, Toggle } from "@/components/ui";
+import {
+  useAgents,
+  useCreateAgent,
+  useUpdateAgent,
+  useDeleteAgent,
+  useOptimizePrompt,
+} from "@/hooks/useAgents";
+import { useWorkspaceModels, useProviders } from "@/hooks/useModels";
+import type { Agent, Model, ModelProvider } from "@/types";
 
-interface Agent {
-  id: string;
-  name: string;
-  char: string;
-  color: string;
-  role: string;
-  model: string;
-  modelBg: string;
-  skills: number;
-  tools: string;
-  time: string;
-}
-
-const mockAgents: Agent[] = [
-  { id: "a1", name: "信息检索员", char: "检", color: "bg-primary", role: "负责网络搜索与信息聚合", model: "GPT-4o", modelBg: "bg-primary-light text-primary-active", skills: 3, tools: "联网搜索 · 文件读写", time: "10 分钟前使用" },
-  { id: "a2", name: "深度分析师", char: "析", color: "bg-sage", role: "负责结构化分析与逻辑推理", model: "Claude 3.5 Sonnet", modelBg: "bg-sage-light text-[#5a7a6b]", skills: 5, tools: "联网搜索 · 代码解释 · 知识库检索", time: "30 分钟前使用" },
-  { id: "a3", name: "文案撰写员", char: "撰", color: "bg-coral", role: "负责报告撰写与内容生成", model: "Qwen-Turbo", modelBg: "bg-coral-light text-[#9a7058]", skills: 2, tools: "文件读写 · Markdown 渲染", time: "1 小时前使用" },
-  { id: "a4", name: "质量审查员", char: "审", color: "bg-lavender", role: "负责输出验收与质量把关", model: "GPT-4o", modelBg: "bg-lavender-light text-[#6f5f80]", skills: 4, tools: "联网搜索 · 文件读写 · 逻辑校验", time: "2 小时前使用" },
-  { id: "a5", name: "数据清洗员", char: "洗", color: "bg-sand", role: "负责数据格式化与清理", model: "Qwen-Turbo", modelBg: "bg-sand-light text-[#8a7b55]", skills: 2, tools: "文件读写 · 数据转换", time: "昨天使用" },
-  { id: "a6", name: "代码评审员", char: "码", color: "bg-[#6A8D99]", role: "负责代码质量审查与建议", model: "Claude 3.5 Sonnet", modelBg: "bg-sage-light text-[#5a7a6b]", skills: 4, tools: "代码解释 · 命令执行 · 文件读写", time: "3 天前使用" },
+const AVATAR_COLORS = [
+  "bg-primary",
+  "bg-sage",
+  "bg-coral",
+  "bg-lavender",
+  "bg-sand",
+  "#6A8D99",
+  "#7B68A8",
+  "#5A9E6F",
+  "#C47E5A",
+  "#6B8FA3",
 ];
 
 const defaultTools = [
@@ -45,20 +50,428 @@ const defaultTools = [
   { key: "exec", label: "命令执行", icon: Terminal },
 ];
 
+function parseToolsJson(json: string | null): Record<string, boolean> {
+  if (!json) return { search: false, file: false, exec: false };
+  try {
+    const arr: string[] = JSON.parse(json);
+    return {
+      search: arr.includes("search"),
+      file: arr.includes("file"),
+      exec: arr.includes("exec"),
+    };
+  } catch {
+    return { search: false, file: false, exec: false };
+  }
+}
+
+function toolsToJson(tools: Record<string, boolean>): string {
+  return JSON.stringify(
+    Object.entries(tools)
+      .filter(([, v]) => v)
+      .map(([k]) => k),
+  );
+}
+
+function parseSkillsJson(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    return JSON.parse(json);
+  } catch {
+    return [];
+  }
+}
+
+function relativeTime(dateStr: string | null): string {
+  if (!dateStr) return "从未使用";
+  const date = new Date(dateStr + "Z");
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  if (diffMs < 0) return "刚刚";
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins} 分钟前`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  const months = Math.floor(days / 30);
+  return `${months} 个月前`;
+}
+
+function getModelDisplay(
+  modelId: string | null,
+  models: Model[],
+): { name: string; found: boolean } {
+  if (!modelId) return { name: "未指定", found: false };
+  const m = models.find((mod) => mod.id === modelId);
+  return m ? { name: m.name, found: true } : { name: modelId, found: false };
+}
+
+const MODEL_BG_CLASSES = [
+  "bg-primary-light text-primary-active",
+  "bg-sage-light text-[#5a7a6b]",
+  "bg-coral-light text-[#9a7058]",
+  "bg-lavender-light text-[#6f5f80]",
+  "bg-sand-light text-[#8a7b55]",
+];
+
+function modelBgClass(modelId: string | null): string {
+  if (!modelId) return "bg-bg-alt text-text-secondary";
+  let hash = 0;
+  for (let i = 0; i < modelId.length; i++) {
+    hash = (hash * 31 + modelId.charCodeAt(i)) | 0;
+  }
+  return MODEL_BG_CLASSES[Math.abs(hash) % MODEL_BG_CLASSES.length];
+}
+
+function formatPrice(price: number | null | undefined): string {
+  if (price == null) return "-";
+  return `$${price.toFixed(2)}`;
+}
+
+function ModelPicker({
+  value,
+  onChange,
+  providers,
+  models,
+  placeholder = "选择模型",
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  providers: ModelProvider[];
+  models: Model[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropUp = spaceBelow < 340;
+    setStyle(
+      dropUp
+        ? {
+            position: "fixed",
+            bottom: window.innerHeight - rect.top + 6,
+            left: rect.left,
+            maxHeight: Math.min(320, rect.top - 20),
+          }
+        : {
+            position: "fixed",
+            top: rect.bottom + 6,
+            left: rect.left,
+            maxHeight: Math.min(320, spaceBelow - 20),
+          },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (
+        triggerRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      )
+        return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const handleToggle = () => {
+    if (!open) updatePosition();
+    setOpen((v) => !v);
+  };
+
+  const selected = models.find((m) => m.id === value);
+  const selectedProvider = selected
+    ? providers.find((p) => p.id === selected.provider_id)
+    : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={handleToggle}
+        className={cn(
+          "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-all cursor-pointer",
+          open
+            ? "border-primary bg-primary-light/40"
+            : "border-border-light bg-bg hover:border-border-hover",
+        )}
+      >
+        {selectedProvider && (
+          <span
+            className="w-5 h-5 rounded flex items-center justify-center text-white text-[0.6rem] font-bold shrink-0"
+            style={{
+              backgroundColor: selectedProvider.icon_color || "#6B7280",
+            }}
+          >
+            {selectedProvider.name.charAt(0)}
+          </span>
+        )}
+        <span
+          className={cn(
+            "text-[0.78rem] flex-1 text-left truncate",
+            selected ? "font-medium text-text" : "text-text-muted",
+          )}
+        >
+          {selected?.name ?? placeholder}
+        </span>
+        <ChevronDown
+          size={12}
+          className={cn(
+            "text-text-muted transition-transform shrink-0",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="w-[260px] bg-surface border border-border-light rounded-xl shadow-xl z-[9999] overflow-y-auto overscroll-contain"
+            style={{ ...style, animation: "scale-in 0.15s ease-out" }}
+            onWheel={(e) => e.stopPropagation()}
+          >
+            {/* 清空选择 */}
+            <button
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+              className={cn(
+                "w-full px-3 py-2 text-left text-[0.78rem] text-text-muted hover:bg-bg-alt transition-colors cursor-pointer",
+                !value && "bg-primary-light font-medium text-primary",
+              )}
+            >
+              {placeholder}
+            </button>
+            <div className="border-t border-border-light/60" />
+            {providers.length === 0 ? (
+              <div className="px-3 py-4 text-center text-[0.78rem] text-text-muted">
+                暂无可用模型
+              </div>
+            ) : (
+              providers.map((p) => {
+                const providerModels = models.filter(
+                  (m) => m.provider_id === p.id,
+                );
+                if (providerModels.length === 0) return null;
+                return (
+                  <div key={p.id}>
+                    <div className="px-3 pt-2.5 pb-1 text-[0.65rem] font-semibold text-text-muted uppercase tracking-wider">
+                      {p.name}
+                    </div>
+                    {providerModels.map((m) => {
+                      const isSelected = m.id === value;
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => {
+                            onChange(m.id);
+                            setOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors cursor-pointer",
+                            isSelected
+                              ? "bg-primary-light"
+                              : "hover:bg-bg-alt",
+                          )}
+                        >
+                          <span
+                            className="w-5 h-5 rounded flex items-center justify-center text-white text-[0.55rem] font-bold shrink-0"
+                            style={{
+                              backgroundColor: p.icon_color || "#6B7280",
+                            }}
+                          >
+                            {p.name.charAt(0)}
+                          </span>
+                          <span
+                            className={cn(
+                              "text-[0.78rem] flex-1 truncate",
+                              isSelected
+                                ? "font-semibold text-primary"
+                                : "text-text",
+                            )}
+                          >
+                            {m.name}
+                          </span>
+                          <span className="text-[0.65rem] text-text-muted font-mono shrink-0">
+                            {formatPrice(m.price_per_million_tokens)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 export default function AgentsPage() {
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const { data: agents = [], isLoading, error } = useAgents();
+  const { data: workspaceModels = [] } = useWorkspaceModels();
+  const { data: providers = [] } = useProviders();
+  const createAgent = useCreateAgent();
+  const updateAgent = useUpdateAgent();
+  const deleteAgent = useDeleteAgent();
+  const optimizePrompt = useOptimizePrompt();
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedAgent = agents.find((a) => a.id === selectedId) ?? null;
+
   const [createOpen, setCreateOpen] = useState(false);
 
-  const [detailPrompt, setDetailPrompt] = useState("你是一个专业的信息检索助手，负责从互联网和本地知识库中搜索、筛选和聚合相关信息。你需要确保信息来源的可靠性，并以结构化的方式呈现结果。");
-  const [detailTools, setDetailTools] = useState<Record<string, boolean>>({ search: true, file: true, exec: false });
-  const [detailSkills] = useState(["网页解析", "PDF 提取", "知识图谱"]);
+  // --- detail panel editable state ---
+  const [detailPrompt, setDetailPrompt] = useState("");
+  const [detailModel, setDetailModel] = useState("");
+  const [detailFallback, setDetailFallback] = useState("");
+  const [detailTools, setDetailTools] = useState<Record<string, boolean>>({
+    search: false,
+    file: false,
+    exec: false,
+  });
+  const [detailDirty, setDetailDirty] = useState(false);
 
+  useEffect(() => {
+    if (selectedAgent) {
+      setDetailPrompt(selectedAgent.system_prompt ?? "");
+      setDetailModel(selectedAgent.model_id ?? "");
+      setDetailFallback(selectedAgent.fallback_model_id ?? "");
+      setDetailTools(parseToolsJson(selectedAgent.tools_json));
+      setDetailDirty(false);
+    }
+  }, [selectedAgent?.id, selectedAgent?.updated_at]);
+
+  const handleDetailSave = useCallback(() => {
+    if (!selectedAgent || !detailDirty) return;
+    updateAgent.mutate({
+      id: selectedAgent.id,
+      systemPrompt: detailPrompt,
+      modelId: detailModel || undefined,
+      fallbackModelId: detailFallback || undefined,
+      toolsJson: toolsToJson(detailTools),
+    });
+    setDetailDirty(false);
+  }, [selectedAgent, detailPrompt, detailModel, detailFallback, detailTools, detailDirty]);
+
+  // --- create form state ---
   const [createName, setCreateName] = useState("");
   const [createRole, setCreateRole] = useState("");
   const [createPrompt, setCreatePrompt] = useState("");
-  const [createModel, setCreateModel] = useState("gpt-4o");
-  const [createFallback, setCreateFallback] = useState("qwen-turbo");
-  const [createTools, setCreateTools] = useState<Record<string, boolean>>({ search: true, file: false, exec: false });
+  const [createModel, setCreateModel] = useState("");
+  const [createFallback, setCreateFallback] = useState("");
+  const [createTools, setCreateTools] = useState<Record<string, boolean>>({
+    search: true,
+    file: false,
+    exec: false,
+  });
+
+  const resetCreateForm = () => {
+    setCreateName("");
+    setCreateRole("");
+    setCreatePrompt("");
+    setCreateModel("");
+    setCreateFallback("");
+    setCreateTools({ search: true, file: false, exec: false });
+  };
+
+  const handleCreate = () => {
+    if (!createName.trim()) return;
+    const char = createName.trim().charAt(0);
+    const color =
+      AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+    createAgent.mutate(
+      {
+        name: createName.trim(),
+        avatarChar: char,
+        avatarColor: color,
+        roleDescription: createRole.trim() || undefined,
+        systemPrompt: createPrompt.trim() || undefined,
+        modelId: createModel || undefined,
+        fallbackModelId: createFallback || undefined,
+        toolsJson: toolsToJson(createTools),
+      },
+      {
+        onSuccess: () => {
+          setCreateOpen(false);
+          resetCreateForm();
+        },
+      },
+    );
+  };
+
+  const handleDelete = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteAgent.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          if (selectedId === id) setSelectedId(null);
+        },
+      },
+    );
+  };
+
+  const handleDuplicate = (agent: Agent, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const color =
+      AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+    createAgent.mutate({
+      name: `${agent.name} (副本)`,
+      avatarChar: agent.avatar_char ?? agent.name.charAt(0),
+      avatarColor: color,
+      roleDescription: agent.role_description ?? undefined,
+      systemPrompt: agent.system_prompt ?? undefined,
+      modelId: agent.model_id ?? undefined,
+      fallbackModelId: agent.fallback_model_id ?? undefined,
+      toolsJson: agent.tools_json ?? "[]",
+      skillsJson: agent.skills_json ?? "[]",
+    });
+  };
+
+  const handleOptimizeCreate = () => {
+    if (!createName.trim() && !createRole.trim()) return;
+    optimizePrompt.mutate(
+      {
+        agentName: createName.trim(),
+        roleDescription: createRole.trim(),
+        currentPrompt: createPrompt.trim(),
+      },
+      {
+        onSuccess: (result) => setCreatePrompt(result),
+      },
+    );
+  };
+
+  const handleOptimizeDetail = () => {
+    if (!selectedAgent) return;
+    optimizePrompt.mutate(
+      {
+        agentName: selectedAgent.name,
+        roleDescription: selectedAgent.role_description ?? "",
+        currentPrompt: detailPrompt,
+      },
+      {
+        onSuccess: (result) => {
+          setDetailPrompt(result);
+          setDetailDirty(true);
+        },
+      },
+    );
+  };
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -70,14 +483,16 @@ export default function AgentsPage() {
           style={{ animation: "fade-in 0.3s ease-out" }}
         >
           <div className="flex items-center justify-between">
-            <p className="text-[0.82rem] text-text-secondary">每个 Agent 是一个带有特定 Prompt 和权限的执行单元</p>
+            <p className="text-[0.82rem] text-text-secondary">
+              每个 Agent 是一个带有特定 Prompt 和权限的执行单元
+            </p>
             <button
               onClick={() => setCreateOpen(true)}
               className={cn(
                 "inline-flex items-center gap-1.5 px-4 py-2 rounded-lg",
                 "bg-primary text-white text-[0.8rem] font-medium",
                 "hover:bg-primary-hover active:bg-primary-active",
-                "transition-colors cursor-pointer shadow-sm"
+                "transition-colors cursor-pointer shadow-sm",
               )}
             >
               <Plus size={15} strokeWidth={2.2} />
@@ -86,160 +501,250 @@ export default function AgentsPage() {
           </div>
         </div>
 
-        {/* Agent Grid */}
+        {/* Content Area */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-2 pb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
-            {mockAgents.map((agent, i) => (
-              <button
-                key={agent.id}
-                onClick={() => setSelectedAgent(agent)}
-                className={cn(
-                  "group relative flex flex-col text-left rounded-xl border bg-surface p-4",
-                  "transition-all duration-200 cursor-pointer",
-                  selectedAgent?.id === agent.id
-                    ? "border-primary shadow-card-hover"
-                    : "border-border-light hover:border-primary hover:shadow-card-hover hover:-translate-y-0.5"
-                )}
-                style={{ animation: `fade-in 0.35s ease-out ${i * 60}ms both` }}
-              >
-                {/* Top */}
-                <div className="flex items-start gap-3 mb-3">
-                  <Avatar char={agent.char} color={agent.color} size="lg" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[0.88rem] font-semibold text-text truncate">
-                      {agent.name}
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <Loader2
+                size={28}
+                className="text-text-muted animate-spin"
+              />
+              <span className="text-[0.82rem] text-text-muted">
+                加载中…
+              </span>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <span className="text-[0.82rem] text-danger">
+                加载失败：{String(error)}
+              </span>
+            </div>
+          ) : agents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-bg-alt flex items-center justify-center">
+                <Bot size={32} className="text-text-muted" />
+              </div>
+              <div className="text-center">
+                <p className="text-[0.92rem] font-medium text-text mb-1">
+                  还没有 Agent
+                </p>
+                <p className="text-[0.78rem] text-text-muted">
+                  点击右上角「手动创建」来添加你的第一个 Agent
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+              {agents.map((agent, i) => {
+                const modelInfo = getModelDisplay(
+                  agent.model_id,
+                  workspaceModels,
+                );
+                const tools = parseToolsJson(agent.tools_json);
+                const skills = parseSkillsJson(agent.skills_json);
+                const toolLabels = defaultTools
+                  .filter((t) => tools[t.key])
+                  .map((t) => t.label)
+                  .join(" · ");
+
+                return (
+                  <button
+                    key={agent.id}
+                    onClick={() => setSelectedId(agent.id)}
+                    className={cn(
+                      "group relative flex flex-col text-left rounded-xl border bg-surface p-4",
+                      "transition-all duration-200 cursor-pointer",
+                      selectedId === agent.id
+                        ? "border-primary shadow-card-hover"
+                        : "border-border-light hover:border-primary hover:shadow-card-hover hover:-translate-y-0.5",
+                    )}
+                    style={{
+                      animation: `fade-in 0.35s ease-out ${i * 60}ms both`,
+                    }}
+                  >
+                    {/* Top */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <Avatar
+                        char={agent.avatar_char ?? agent.name.charAt(0)}
+                        color={agent.avatar_color ?? "bg-primary"}
+                        size="lg"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[0.88rem] font-semibold text-text truncate">
+                          {agent.name}
+                        </div>
+                        <div className="text-[0.73rem] text-text-muted mt-0.5 line-clamp-1">
+                          {agent.role_description || "暂无描述"}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-[0.73rem] text-text-muted mt-0.5 line-clamp-1">
-                      {agent.role}
-                    </div>
-                  </div>
-                </div>
 
-                {/* Meta pills */}
-                <div className="flex items-center gap-1.5 mb-2.5">
-                  <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium", agent.modelBg)}>
-                    <Cpu size={11} />
-                    {agent.model}
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
-                    <Wrench size={10} />
-                    {agent.skills} Skills
-                  </span>
-                </div>
-
-                {/* Tools */}
-                <div className="text-[0.72rem] text-text-muted mb-3 truncate">
-                  {agent.tools}
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between mt-auto pt-2.5 border-t border-border-light">
-                  <span className="inline-flex items-center gap-1 text-[0.7rem] text-text-muted">
-                    <Clock size={11} />
-                    {agent.time}
-                  </span>
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {[
-                      { icon: Pencil, label: "编辑" },
-                      { icon: Copy, label: "复制" },
-                      { icon: Archive, label: "归档" },
-                    ].map((action) => (
+                    {/* Meta pills */}
+                    <div className="flex items-center gap-1.5 mb-2.5">
                       <span
-                        key={action.label}
-                        title={action.label}
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium",
+                          modelBgClass(agent.model_id),
+                        )}
                       >
-                        <action.icon size={13} />
+                        <Cpu size={11} />
+                        {modelInfo.name}
                       </span>
-                    ))}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
+                      {skills.length > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
+                          <Wrench size={10} />
+                          {skills.length} Skills
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Tools */}
+                    <div className="text-[0.72rem] text-text-muted mb-3 truncate">
+                      {toolLabels || "未启用工具"}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between mt-auto pt-2.5 border-t border-border-light">
+                      <span className="inline-flex items-center gap-1 text-[0.7rem] text-text-muted">
+                        <Clock size={11} />
+                        {relativeTime(agent.last_used_at)}
+                      </span>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span
+                          title="编辑"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedId(agent.id);
+                          }}
+                          className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
+                        >
+                          <Pencil size={13} />
+                        </span>
+                        <span
+                          title="复制"
+                          onClick={(e) => handleDuplicate(agent, e)}
+                          className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
+                        >
+                          <Copy size={13} />
+                        </span>
+                        <span
+                          title="删除"
+                          onClick={(e) => handleDelete(agent.id, e)}
+                          className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                        >
+                          <Trash2 size={13} />
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Right Detail Panel */}
-      {selectedAgent && (
-        <div
-          className="w-[340px] shrink-0 border-l border-border-light bg-surface flex flex-col overflow-hidden"
-          style={{ animation: "slide-right 0.25s ease-out" }}
-        >
-          {/* Header */}
-          <div className="shrink-0 px-5 py-4 border-b border-border-light">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <Avatar char={selectedAgent.char} color={selectedAgent.color} size="xl" />
-                <div>
-                  <div className="text-[0.95rem] font-semibold text-text">
-                    {selectedAgent.name}
-                  </div>
-                  <div className="text-[0.75rem] text-text-muted mt-0.5">
-                    {selectedAgent.role}
-                  </div>
+      {/* Detail Modal */}
+      <Modal
+        open={!!selectedAgent}
+        onClose={() => setSelectedId(null)}
+        title={selectedAgent?.name ?? "Agent 详情"}
+        width="580px"
+      >
+        {selectedAgent && (
+          <div className="space-y-5">
+            {/* Avatar + Role */}
+            <div className="flex items-center gap-3">
+              <Avatar
+                char={
+                  selectedAgent.avatar_char ??
+                  selectedAgent.name.charAt(0)
+                }
+                color={selectedAgent.avatar_color ?? "bg-primary"}
+                size="xl"
+              />
+              <div>
+                <div className="text-[0.95rem] font-semibold text-text">
+                  {selectedAgent.name}
+                </div>
+                <div className="text-[0.75rem] text-text-muted mt-0.5">
+                  {selectedAgent.role_description || "暂无描述"}
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedAgent(null)}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text hover:bg-bg-alt transition-colors cursor-pointer"
-              >
-                <X size={16} />
-              </button>
             </div>
-          </div>
 
-          {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
             {/* System Prompt */}
-            <section>
-              <label className="block text-[0.78rem] font-medium text-text mb-2">
-                系统提示词
-              </label>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[0.78rem] font-medium text-text">
+                  系统提示词
+                </label>
+                <button
+                  onClick={handleOptimizeDetail}
+                  disabled={optimizePrompt.isPending}
+                  className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {optimizePrompt.isPending ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={12} />
+                  )}
+                  AI 优化
+                </button>
+              </div>
               <textarea
                 value={detailPrompt}
-                onChange={(e) => setDetailPrompt(e.target.value)}
+                onChange={(e) => {
+                  setDetailPrompt(e.target.value);
+                  setDetailDirty(true);
+                }}
                 rows={5}
                 className={cn(
                   "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
                   "text-[0.78rem] text-text leading-relaxed resize-none",
                   "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                  "transition-colors"
+                  "transition-colors",
                 )}
               />
-            </section>
+            </div>
 
-            {/* Default Model */}
-            <section>
-              <label className="block text-[0.78rem] font-medium text-text mb-2">
-                默认模型
-              </label>
-              <div className="relative">
-                <select
-                  defaultValue={selectedAgent.model}
-                  className={cn(
-                    "w-full appearance-none rounded-lg border border-border-light bg-bg px-3 py-2",
-                    "text-[0.78rem] text-text pr-8",
-                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                    "transition-colors cursor-pointer"
-                  )}
-                >
-                  <option>GPT-4o</option>
-                  <option>Claude 3.5 Sonnet</option>
-                  <option>Qwen-Turbo</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+            {/* Model + Fallback */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[0.78rem] font-medium text-text mb-1.5">
+                  默认模型
+                </label>
+                <ModelPicker
+                  value={detailModel}
+                  onChange={(v) => {
+                    setDetailModel(v);
+                    setDetailDirty(true);
+                  }}
+                  providers={providers}
+                  models={workspaceModels}
+                />
               </div>
-              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[0.65rem] font-medium bg-success-light text-success">
-                推荐
-              </span>
-            </section>
+              <div>
+                <label className="block text-[0.78rem] font-medium text-text mb-1.5">
+                  兜底模型
+                </label>
+                <ModelPicker
+                  value={detailFallback}
+                  onChange={(v) => {
+                    setDetailFallback(v);
+                    setDetailDirty(true);
+                  }}
+                  providers={providers}
+                  models={workspaceModels}
+                  placeholder="选择兜底模型"
+                />
+              </div>
+            </div>
 
             {/* Tool Permissions */}
-            <section>
+            <div>
               <label className="block text-[0.78rem] font-medium text-text mb-2">
-                工具权限
+                能力权限
               </label>
               <div className="space-y-2">
                 {defaultTools.map((tool) => (
@@ -248,56 +753,91 @@ export default function AgentsPage() {
                     className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2.5"
                   >
                     <div className="flex items-center gap-2">
-                      <tool.icon size={14} className="text-text-secondary" />
-                      <span className="text-[0.78rem] text-text">{tool.label}</span>
+                      <tool.icon
+                        size={14}
+                        className="text-text-secondary"
+                      />
+                      <span className="text-[0.78rem] text-text">
+                        {tool.label}
+                      </span>
                     </div>
                     <Toggle
                       checked={detailTools[tool.key]}
-                      onChange={(v) => setDetailTools((prev) => ({ ...prev, [tool.key]: v }))}
+                      onChange={(v) => {
+                        setDetailTools((prev) => ({
+                          ...prev,
+                          [tool.key]: v,
+                        }));
+                        setDetailDirty(true);
+                      }}
                     />
                   </div>
                 ))}
               </div>
-            </section>
+            </div>
 
             {/* Private Skills */}
-            <section>
-              <label className="block text-[0.78rem] font-medium text-text mb-2">
-                私有 Skills
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {detailSkills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium bg-primary-light text-primary-active"
-                  >
-                    {skill}
-                    <X size={12} className="cursor-pointer hover:text-danger transition-colors" />
-                  </span>
-                ))}
+            {parseSkillsJson(selectedAgent.skills_json).length > 0 && (
+              <div>
+                <label className="block text-[0.78rem] font-medium text-text mb-2">
+                  私有 Skills
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {parseSkillsJson(selectedAgent.skills_json).map(
+                    (skill) => (
+                      <span
+                        key={skill}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium bg-primary-light text-primary-active"
+                      >
+                        {skill}
+                      </span>
+                    ),
+                  )}
+                </div>
               </div>
-            </section>
-          </div>
+            )}
 
-          {/* Footer */}
-          <div className="shrink-0 px-5 py-3.5 border-t border-border-light">
-            <button
-              className={cn(
-                "w-full py-2 rounded-lg text-[0.8rem] font-medium",
-                "border border-border-light text-text-secondary",
-                "hover:bg-bg-alt hover:text-text transition-colors cursor-pointer"
-              )}
-            >
-              保存为模板
-            </button>
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setSelectedId(null)}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
+                  "text-text-secondary hover:text-text hover:bg-bg-alt",
+                  "transition-colors cursor-pointer",
+                )}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleDetailSave}
+                disabled={!detailDirty || updateAgent.isPending}
+                className={cn(
+                  "px-5 py-2 rounded-lg text-[0.8rem] font-medium inline-flex items-center justify-center gap-1.5",
+                  "transition-colors cursor-pointer shadow-sm",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  detailDirty
+                    ? "bg-primary text-white hover:bg-primary-hover"
+                    : "bg-primary/50 text-white",
+                )}
+              >
+                {updateAgent.isPending && (
+                  <Loader2 size={14} className="animate-spin" />
+                )}
+                保存修改
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Create Agent Modal */}
       <Modal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false);
+          resetCreateForm();
+        }}
         title="创建新 Agent"
         width="580px"
       >
@@ -317,7 +857,7 @@ export default function AgentsPage() {
                   "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
                   "text-[0.8rem] text-text placeholder:text-text-muted",
                   "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                  "transition-colors"
+                  "transition-colors",
                 )}
               />
             </div>
@@ -334,7 +874,7 @@ export default function AgentsPage() {
                   "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
                   "text-[0.8rem] text-text placeholder:text-text-muted",
                   "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                  "transition-colors"
+                  "transition-colors",
                 )}
               />
             </div>
@@ -346,8 +886,19 @@ export default function AgentsPage() {
               <label className="text-[0.78rem] font-medium text-text">
                 系统提示词
               </label>
-              <button className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer">
-                <Sparkles size={12} />
+              <button
+                onClick={handleOptimizeCreate}
+                disabled={
+                  optimizePrompt.isPending ||
+                  (!createName.trim() && !createRole.trim())
+                }
+                className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {optimizePrompt.isPending ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Sparkles size={12} />
+                )}
                 AI 优化
               </button>
             </div>
@@ -360,9 +911,14 @@ export default function AgentsPage() {
                 "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
                 "text-[0.78rem] text-text leading-relaxed resize-none placeholder:text-text-muted",
                 "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                "transition-colors"
+                "transition-colors",
               )}
             />
+            {optimizePrompt.isError && (
+              <p className="mt-1 text-[0.72rem] text-danger">
+                {String(optimizePrompt.error)}
+              </p>
+            )}
           </div>
 
           {/* Model + Fallback */}
@@ -371,52 +927,31 @@ export default function AgentsPage() {
               <label className="block text-[0.78rem] font-medium text-text mb-1.5">
                 默认模型
               </label>
-              <div className="relative">
-                <select
-                  value={createModel}
-                  onChange={(e) => setCreateModel(e.target.value)}
-                  className={cn(
-                    "w-full appearance-none rounded-lg border border-border-light bg-bg px-3 py-2",
-                    "text-[0.8rem] text-text pr-8",
-                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                    "transition-colors cursor-pointer"
-                  )}
-                >
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                  <option value="qwen-turbo">Qwen-Turbo</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-              </div>
+              <ModelPicker
+                value={createModel}
+                onChange={setCreateModel}
+                providers={providers}
+                models={workspaceModels}
+              />
             </div>
             <div>
               <label className="block text-[0.78rem] font-medium text-text mb-1.5">
                 兜底模型
               </label>
-              <div className="relative">
-                <select
-                  value={createFallback}
-                  onChange={(e) => setCreateFallback(e.target.value)}
-                  className={cn(
-                    "w-full appearance-none rounded-lg border border-border-light bg-bg px-3 py-2",
-                    "text-[0.8rem] text-text pr-8",
-                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                    "transition-colors cursor-pointer"
-                  )}
-                >
-                  <option value="qwen-turbo">Qwen-Turbo</option>
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-              </div>
+              <ModelPicker
+                value={createFallback}
+                onChange={setCreateFallback}
+                providers={providers}
+                models={workspaceModels}
+                placeholder="选择兜底模型"
+              />
             </div>
           </div>
 
           {/* Tool Permissions */}
           <div>
             <label className="block text-[0.78rem] font-medium text-text mb-2">
-              工具权限
+              能力权限
             </label>
             <div className="space-y-2">
               {defaultTools.map((tool) => (
@@ -425,12 +960,22 @@ export default function AgentsPage() {
                   className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2.5"
                 >
                   <div className="flex items-center gap-2">
-                    <tool.icon size={14} className="text-text-secondary" />
-                    <span className="text-[0.78rem] text-text">{tool.label}</span>
+                    <tool.icon
+                      size={14}
+                      className="text-text-secondary"
+                    />
+                    <span className="text-[0.78rem] text-text">
+                      {tool.label}
+                    </span>
                   </div>
                   <Toggle
                     checked={createTools[tool.key]}
-                    onChange={(v) => setCreateTools((prev) => ({ ...prev, [tool.key]: v }))}
+                    onChange={(v) =>
+                      setCreateTools((prev) => ({
+                        ...prev,
+                        [tool.key]: v,
+                      }))
+                    }
                   />
                 </div>
               ))}
@@ -440,23 +985,32 @@ export default function AgentsPage() {
           {/* Actions */}
           <div className="flex items-center justify-end gap-2.5 pt-2">
             <button
-              onClick={() => setCreateOpen(false)}
+              onClick={() => {
+                setCreateOpen(false);
+                resetCreateForm();
+              }}
               className={cn(
                 "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
                 "text-text-secondary hover:text-text hover:bg-bg-alt",
-                "transition-colors cursor-pointer"
+                "transition-colors cursor-pointer",
               )}
             >
               取消
             </button>
             <button
+              onClick={handleCreate}
+              disabled={!createName.trim() || createAgent.isPending}
               className={cn(
-                "px-5 py-2 rounded-lg text-[0.8rem] font-medium",
+                "px-5 py-2 rounded-lg text-[0.8rem] font-medium inline-flex items-center gap-1.5",
                 "bg-primary text-white",
                 "hover:bg-primary-hover active:bg-primary-active",
-                "transition-colors cursor-pointer shadow-sm"
+                "transition-colors cursor-pointer shadow-sm",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
+              {createAgent.isPending && (
+                <Loader2 size={14} className="animate-spin" />
+              )}
               创建 Agent
             </button>
           </div>
