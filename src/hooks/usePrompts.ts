@@ -35,6 +35,13 @@ export function useCreatePromptVersion() {
   });
 }
 
+export function useOptimizePrompt() {
+  return useMutation({
+    mutationFn: (content: string) =>
+      tauriInvoke<string>("refine_prompt", { content }),
+  });
+}
+
 export function useCreateWorkflowTemplate() {
   const qc = useQueryClient();
   return useMutation({

@@ -393,7 +393,7 @@ pub async fn run_task(
     Ok(())
 }
 
-async fn resolve_model(
+pub async fn resolve_model(
     pool: &SqlitePool,
     agent: &Option<Agent>,
 ) -> Result<(String, String, String, f64), String> {
@@ -437,7 +437,7 @@ async fn resolve_model(
     .ok_or_else(|| "没有可用的模型。请在「模型与路由」页面启用至少一个模型".into())
 }
 
-async fn query_model_info(
+pub async fn query_model_info(
     pool: &SqlitePool,
     model_id: &str,
 ) -> Result<(String, String, String, f64), String> {

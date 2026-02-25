@@ -125,6 +125,7 @@ pub fn run() {
             // prompts & workflow templates
             prompts::list_prompt_versions,
             prompts::create_prompt_version,
+            prompts::refine_prompt,
             prompts::list_workflow_templates,
             prompts::create_workflow_template,
             // settings
