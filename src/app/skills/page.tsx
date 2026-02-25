@@ -37,6 +37,8 @@ import {
 } from "@/hooks/useSkills";
 import type { ScannedSkill, ScanPathInfo, ValidatedSkill } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
+import { useAgents } from "@/hooks/useAgents";
+import { useTeams } from "@/hooks/useTeams";
 import type { Skill, MarketplaceSkill } from "@/types";
 
 type Scope = "global" | "team" | "agent";
@@ -55,7 +57,6 @@ const SCOPE_FILTERS = [
 ];
 
 const scopeGroups: { scope: Scope; label: string; color: string }[] = [
-  { scope: "global", label: "全局 Skills", color: "bg-primary" },
   { scope: "team", label: "团队 Skills", color: "bg-sage" },
   { scope: "agent", label: "Agent 私有", color: "bg-lavender" },
 ];
@@ -98,6 +99,8 @@ export default function SkillsPage() {
   const importSkill = useImportScannedSkill();
   const importLocalSkill = useImportLocalSkill();
   const { data: settings } = useSettings();
+  const { data: agents = [] } = useAgents();
+  const { data: teams = [] } = useTeams();
 
   const hasApiKey = !!settings?.skillsmp_api_key;
   const installSkill = useInstallMarketplaceSkill();
@@ -115,9 +118,26 @@ export default function SkillsPage() {
     }
   };
 
+  const teamSkillNames = new Set(
+    teams.flatMap((t) => {
+      try { return t.shared_skills_json ? JSON.parse(t.shared_skills_json) as string[] : []; } catch { return []; }
+    }),
+  );
+  const agentSkillNames = new Set(
+    agents.flatMap((a) => {
+      try { return a.skills_json ? JSON.parse(a.skills_json) as string[] : []; } catch { return []; }
+    }).filter((name) => !teamSkillNames.has(name)),
+  );
+
+  const effectiveScope = (s: Skill): Scope => {
+    if (teamSkillNames.has(s.name)) return "team";
+    if (agentSkillNames.has(s.name)) return "agent";
+    return "global";
+  };
+
   const filtered = installedSkills.filter((s) => {
     if (activeTab === "update" && s.status !== "update") return false;
-    if (scopeFilter !== "all" && s.scope !== scopeFilter) return false;
+    if (scopeFilter !== "all" && effectiveScope(s) !== scopeFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       const nameMatch = s.name.toLowerCase().includes(q);
@@ -129,7 +149,7 @@ export default function SkillsPage() {
 
   const groupedSkills = scopeGroups.map((g) => ({
     ...g,
-    skills: installedSkills.filter((s) => s.scope === g.scope),
+    skills: installedSkills.filter((s) => effectiveScope(s) === g.scope),
   }));
 
   const updatable = installedSkills.filter((s) => s.status === "update").length;
@@ -350,6 +370,7 @@ export default function SkillsPage() {
             skills={filtered}
             loading={skillsLoading}
             activeTab={activeTab}
+            scopeOf={effectiveScope}
           />
         )}
       </div>
@@ -363,30 +384,39 @@ export default function SkillsPage() {
             Skill 作用域
           </h4>
           <div className="space-y-3">
-            {groupedSkills.map((group) => (
-              <div key={group.scope}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className={cn("w-2 h-2 rounded-full shrink-0", group.color)} />
-                  <span className="text-[0.78rem] font-medium text-text-secondary">
-                    {group.label} ({group.skills.length})
-                  </span>
+            {groupedSkills.map((group) => {
+              const MAX_VISIBLE = 5;
+              const overflow = group.skills.length - MAX_VISIBLE;
+              return (
+                <div key={group.scope}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className={cn("w-2 h-2 rounded-full shrink-0", group.color)} />
+                    <span className="text-[0.78rem] font-medium text-text-secondary">
+                      {group.label} ({group.skills.length})
+                    </span>
+                  </div>
+                  <div className="ml-4 space-y-1">
+                    {group.skills.slice(0, MAX_VISIBLE).map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-2 text-[0.74rem] text-text-muted py-0.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-text-muted/30 shrink-0" />
+                        <span className="truncate">{s.name}</span>
+                      </div>
+                    ))}
+                    {overflow > 0 && (
+                      <span className="text-[0.68rem] text-text-muted/50 ml-3.5">
+                        …另有 {overflow} 个
+                      </span>
+                    )}
+                    {group.skills.length === 0 && (
+                      <span className="text-[0.72rem] text-text-muted/50">暂无</span>
+                    )}
+                  </div>
                 </div>
-                <div className="ml-4 space-y-1">
-                  {group.skills.map((s) => (
-                    <div
-                      key={s.id}
-                      className="flex items-center gap-2 text-[0.74rem] text-text-muted py-0.5"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-text-muted/30 shrink-0" />
-                      <span className="truncate">{s.name}</span>
-                    </div>
-                  ))}
-                  {group.skills.length === 0 && (
-                    <span className="text-[0.72rem] text-text-muted/50">暂无</span>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -712,10 +742,12 @@ function InstalledContent({
   skills,
   loading,
   activeTab,
+  scopeOf,
 }: {
   skills: Skill[];
   loading: boolean;
   activeTab: string;
+  scopeOf: (s: Skill) => Scope;
 }) {
   const [detailSkill, setDetailSkill] = useState<Skill | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
@@ -756,6 +788,7 @@ function InstalledContent({
             key={skill.id}
             skill={skill}
             index={i}
+            resolvedScope={scopeOf(skill)}
             onShowDetail={() => setDetailSkill(skill)}
             onDelete={() => setDeleteTarget(skill)}
           />
@@ -765,6 +798,7 @@ function InstalledContent({
       {detailSkill && (
         <InstalledSkillDetailModal
           skill={detailSkill}
+          resolvedScope={scopeOf(detailSkill)}
           onClose={() => setDetailSkill(null)}
           onDelete={() => {
             setDeleteTarget(detailSkill);
@@ -820,15 +854,17 @@ function InstalledContent({
 function InstalledSkillCard({
   skill,
   index,
+  resolvedScope,
   onShowDetail,
   onDelete,
 }: {
   skill: Skill;
   index: number;
+  resolvedScope: Scope;
   onShowDetail: () => void;
   onDelete: () => void;
 }) {
-  const scopeInfo = SCOPE_STYLE[skill.scope ?? "global"] ?? SCOPE_STYLE.global;
+  const scopeInfo = SCOPE_STYLE[resolvedScope] ?? SCOPE_STYLE.global;
   const sourceInfo = SOURCE_STYLE[skill.source ?? "local"] ?? SOURCE_STYLE.local;
 
   let cardSourceTool: string | null = null;
@@ -910,14 +946,16 @@ function InstalledSkillCard({
 
 function InstalledSkillDetailModal({
   skill,
+  resolvedScope,
   onClose,
   onDelete,
 }: {
   skill: Skill;
+  resolvedScope: Scope;
   onClose: () => void;
   onDelete: () => void;
 }) {
-  const scopeInfo = SCOPE_STYLE[skill.scope ?? "global"] ?? SCOPE_STYLE.global;
+  const scopeInfo = SCOPE_STYLE[resolvedScope] ?? SCOPE_STYLE.global;
   const sourceInfo = SOURCE_STYLE[skill.source ?? "local"] ?? SOURCE_STYLE.local;
 
   let installPath: string | null = null;
