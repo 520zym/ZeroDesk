@@ -13,6 +13,7 @@ import KnowledgePage from "./knowledge/page";
 import PromptsPage from "./prompts/page";
 import HistoryPage from "./history/page";
 import DashboardPage from "./dashboard/page";
+import SettingsPage from "./settings/page";
 
 export const router = createBrowserRouter([
   {
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: "prompts", element: <PromptsPage /> },
       { path: "history", element: <HistoryPage /> },
       { path: "dashboard", element: <DashboardPage /> },
+      { path: "settings", element: <SettingsPage /> },
     ],
   },
 ]);

@@ -13,6 +13,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/knowledge": "知识库",
   "/prompts": "Prompt/模板中心",
   "/dashboard": "数据看板",
+  "/settings": "系统设置",
 };
 
 function getTitle(pathname: string): string {

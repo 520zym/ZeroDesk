@@ -150,7 +150,7 @@ export default function TeamsPage() {
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-6">
+      <div className="flex-1 overflow-y-auto px-6 pt-2 pb-6 space-y-6">
         {/* Team Grid */}
         <div className="grid grid-cols-2 gap-4">
           {mockTeams.map((team, i) => (
@@ -172,10 +172,25 @@ export default function TeamsPage() {
                   <h3 className="text-[0.9rem] font-semibold text-text">
                     {team.name}
                   </h3>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary group-hover:hidden">
                     <Users size={11} />
                     {team.agents} 个 Agent
                   </span>
+                  <div className="hidden group-hover:flex items-center gap-1">
+                    {[
+                      { icon: Pencil, label: "编辑" },
+                      { icon: Copy, label: "复制" },
+                    ].map((action) => (
+                      <span
+                        key={action.label}
+                        title={action.label}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
+                      >
+                        <action.icon size={13} />
+                      </span>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Description */}
@@ -214,22 +229,6 @@ export default function TeamsPage() {
                   </div>
                 </div>
 
-                {/* Hover actions */}
-                <div className="flex items-center gap-1 absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {[
-                    { icon: Pencil, label: "编辑" },
-                    { icon: Copy, label: "复制" },
-                  ].map((action) => (
-                    <span
-                      key={action.label}
-                      title={action.label}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-7 h-7 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
-                    >
-                      <action.icon size={13} />
-                    </span>
-                  ))}
-                </div>
               </div>
             </button>
           ))}

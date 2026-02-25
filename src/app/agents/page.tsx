@@ -87,7 +87,7 @@ export default function AgentsPage() {
         </div>
 
         {/* Agent Grid */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
+        <div className="flex-1 overflow-y-auto px-6 pt-2 pb-6">
           <div className="grid grid-cols-3 gap-3.5">
             {mockAgents.map((agent, i) => (
               <button

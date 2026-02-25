@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Plus,
   Search,
@@ -10,12 +11,22 @@ import {
   ChevronDown,
   Circle,
   AlertTriangle,
+  Eye,
+  EyeOff,
+  Key,
+  Brain,
+  Sparkles,
+  ShieldCheck,
+  FileText,
+  Globe,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ProgressBar } from "@/components/ui";
+import { ProgressBar, Modal, Toggle } from "@/components/ui";
 
 const PROVIDERS = [
   {
+    id: "openai",
     name: "OpenAI",
     icon: "O",
     iconBg: "bg-[#10A37F]",
@@ -24,8 +35,10 @@ const PROVIDERS = [
     latency: "98ms",
     models: 6,
     balance: "余额 $142.50",
+    apiKey: "sk-proj-****...****7xKa",
   },
   {
+    id: "anthropic",
     name: "Anthropic",
     icon: "A",
     iconBg: "bg-[#D4A574]",
@@ -34,8 +47,10 @@ const PROVIDERS = [
     latency: "125ms",
     models: 4,
     balance: "余额 $86.20",
+    apiKey: "sk-ant-****...****9mBq",
   },
   {
+    id: "aliyun",
     name: "阿里云百炼",
     icon: "阿",
     iconBg: "bg-[#FF6A00]",
@@ -44,11 +59,13 @@ const PROVIDERS = [
     latency: "210ms",
     models: 3,
     balance: "余额 ¥500",
+    apiKey: "sk-ali-****...****3nPw",
   },
 ];
 
 const MODELS = [
   {
+    id: "openai/gpt-4o",
     name: "GPT-4o",
     provider: "OpenAI",
     quality: 5,
@@ -59,6 +76,7 @@ const MODELS = [
     status: "available" as const,
   },
   {
+    id: "openai/gpt-4o-mini",
     name: "GPT-4o-mini",
     provider: "OpenAI",
     quality: 3,
@@ -69,6 +87,7 @@ const MODELS = [
     status: "available" as const,
   },
   {
+    id: "anthropic/claude-3.5-sonnet",
     name: "Claude 3.5 Sonnet",
     provider: "Anthropic",
     quality: 5,
@@ -79,6 +98,7 @@ const MODELS = [
     status: "available" as const,
   },
   {
+    id: "anthropic/claude-3-haiku",
     name: "Claude 3 Haiku",
     provider: "Anthropic",
     quality: 3,
@@ -89,6 +109,7 @@ const MODELS = [
     status: "available" as const,
   },
   {
+    id: "aliyun/qwen-turbo",
     name: "Qwen-Turbo",
     provider: "阿里云百炼",
     quality: 3,
@@ -99,6 +120,7 @@ const MODELS = [
     status: "available" as const,
   },
   {
+    id: "aliyun/qwen-max",
     name: "Qwen-Max",
     provider: "阿里云百炼",
     quality: 4,
@@ -145,11 +167,37 @@ function Stars({ count }: { count: number }) {
   );
 }
 
+const SYSTEM_MODEL_TASKS = [
+  { id: "planning", label: "任务规划", desc: "将用户目标拆解为可执行的子任务", icon: Brain, model: "openai/gpt-4o" },
+  { id: "prompt", label: "Prompt 优化", desc: "自动优化 Agent 的系统提示词", icon: Sparkles, model: "anthropic/claude-3.5-sonnet" },
+  { id: "quality", label: "质量评审", desc: "校验 Agent 输出的准确性与完整性", icon: ShieldCheck, model: "openai/gpt-4o" },
+  { id: "summary", label: "智能摘要", desc: "任务完成后自动生成执行报告", icon: FileText, model: "aliyun/qwen-turbo" },
+];
+
+const PROVIDER_PRESETS = [
+  { id: "openai", name: "OpenAI", icon: "O", iconBg: "bg-[#10A37F]", baseUrl: "https://api.openai.com/v1" },
+  { id: "anthropic", name: "Anthropic", icon: "A", iconBg: "bg-[#D4A574]", baseUrl: "https://api.anthropic.com" },
+  { id: "aliyun", name: "阿里云百炼", icon: "阿", iconBg: "bg-[#FF6A00]", baseUrl: "https://dashscope.aliyuncs.com" },
+  { id: "deepseek", name: "DeepSeek", icon: "D", iconBg: "bg-[#4D6BFE]", baseUrl: "https://api.deepseek.com/v1" },
+  { id: "moonshot", name: "Moonshot (Kimi)", icon: "M", iconBg: "bg-[#1A1A2E]", baseUrl: "https://api.moonshot.cn/v1" },
+  { id: "zhipu", name: "智谱 AI", icon: "智", iconBg: "bg-[#3B5998]", baseUrl: "https://open.bigmodel.cn/api" },
+];
+
 export default function ModelsPage() {
   const [search, setSearch] = useState("");
   const [retries, setRetries] = useState("3");
   const [backoff, setBackoff] = useState("exponential");
   const [overBudget, setOverBudget] = useState("downgrade");
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [systemModels, setSystemModels] = useState<Record<string, string>>(
+    Object.fromEntries(SYSTEM_MODEL_TASKS.map((t) => [t.id, t.model])),
+  );
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSelected, setAddSelected] = useState<string | null>(null);
+  const [addApiKey, setAddApiKey] = useState("");
+  const [addBaseUrl, setAddBaseUrl] = useState("");
+  const [addCustomName, setAddCustomName] = useState("");
+  const [addAutoDetect, setAddAutoDetect] = useState(true);
 
   const filteredModels = MODELS.filter(
     (m) =>
@@ -165,7 +213,10 @@ export default function ModelsPage() {
         style={{ animation: "fade-in 0.25s ease-out" }}
       >
         <p className="text-[0.82rem] text-text-secondary">管理模型供应商、模型池与调度策略</p>
-        <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.82rem] font-medium bg-gradient-to-r from-primary to-lavender text-white border-none cursor-pointer transition-all hover:shadow-glow shadow-sm">
+        <button
+          onClick={() => setAddOpen(true)}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.82rem] font-medium bg-gradient-to-r from-primary to-lavender text-white border-none cursor-pointer transition-all hover:shadow-glow shadow-sm"
+        >
           <Plus size={15} strokeWidth={2.5} />
           添加供应商
         </button>
@@ -234,6 +285,19 @@ export default function ModelsPage() {
                 </span>
               </div>
             </div>
+            {/* API Key */}
+            <div className="flex items-center gap-1.5 mb-3 px-2.5 py-2 rounded-lg bg-bg/80 border border-border-light/60">
+              <Key size={11} className="text-text-muted shrink-0" />
+              <span className="text-[0.68rem] text-text-muted font-mono truncate flex-1">
+                {showKeys[p.id] ? "sk-real-key-would-be-here" : p.apiKey}
+              </span>
+              <button
+                onClick={() => setShowKeys((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}
+                className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-text transition-colors cursor-pointer shrink-0"
+              >
+                {showKeys[p.id] ? <EyeOff size={11} /> : <Eye size={11} />}
+              </button>
+            </div>
             <div className="flex gap-2">
               <button className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-[0.75rem] font-medium bg-bg-alt text-text-secondary hover:text-text hover:bg-bg-deep transition-colors cursor-pointer border-none">
                 <Settings size={12} />
@@ -249,6 +313,7 @@ export default function ModelsPage() {
 
         {/* Add provider card */}
         <div
+          onClick={() => setAddOpen(true)}
           className="rounded-xl border-2 border-dashed border-border p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all hover:border-primary/40 hover:bg-primary-light/30 group min-h-[180px]"
           style={{
             animation: `fade-in 0.3s ease-out ${PROVIDERS.length * 0.06}s both`,
@@ -266,13 +331,46 @@ export default function ModelsPage() {
         </div>
       </div>
 
-      {/* Model Pool Table */}
+      {/* System Models */}
+      <div
+        className="bg-surface rounded-xl border border-border-light shadow-card mb-6"
+        style={{ animation: "fade-in 0.35s ease-out 0.12s both" }}
+      >
+        <div className="px-5 py-3.5 border-b border-border-light flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-lavender to-primary flex items-center justify-center">
+              <Zap size={13} className="text-white" />
+            </div>
+            <h3 className="text-[0.95rem] font-semibold text-text">系统内置模型</h3>
+          </div>
+          <span className="text-[0.72rem] text-text-muted">系统编排引擎使用的模型，不同于 Agent 执行模型</span>
+        </div>
+        <div className="divide-y divide-border-light/60">
+          {SYSTEM_MODEL_TASKS.map((task) => (
+            <div key={task.id} className="px-5 py-3.5 flex items-center gap-4">
+              <div className="w-8 h-8 rounded-lg bg-bg-alt flex items-center justify-center shrink-0">
+                <task.icon size={16} className="text-text-secondary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[0.84rem] font-medium text-text">{task.label}</div>
+                <div className="text-[0.72rem] text-text-muted mt-0.5">{task.desc}</div>
+              </div>
+              <ModelPicker
+                value={systemModels[task.id]}
+                onChange={(id) => setSystemModels((prev) => ({ ...prev, [task.id]: id }))}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Agent Model Pool Table */}
       <div
         className="bg-surface rounded-xl border border-border-light shadow-card mb-6 overflow-hidden"
         style={{ animation: "fade-in 0.35s ease-out 0.15s both" }}
       >
         <div className="px-5 py-3.5 border-b border-border-light flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="text-[0.95rem] font-semibold text-text">模型池</h3>
+          <h3 className="text-[0.95rem] font-semibold text-text">Agent 模型池</h3>
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search
@@ -307,7 +405,7 @@ export default function ModelsPage() {
         {/* Table rows */}
         {filteredModels.map((m, i) => (
           <div
-            key={m.name}
+            key={m.id}
             className="px-5 py-3 flex items-center gap-3 border-b border-border-light/50 last:border-b-0 hover:bg-bg/50 transition-colors cursor-pointer group"
             style={{ animation: `fade-in 0.2s ease-out ${i * 0.04}s both` }}
           >
@@ -522,6 +620,276 @@ export default function ModelsPage() {
           </div>
         </div>
       </div>
+
+      {/* Add Provider Modal */}
+      <Modal
+        open={addOpen}
+        onClose={() => { setAddOpen(false); setAddSelected(null); setAddApiKey(""); setAddBaseUrl(""); setAddCustomName(""); }}
+        title="添加模型供应商"
+        width="560px"
+      >
+        <div className="space-y-5">
+          {/* Preset grid */}
+          <div>
+            <label className="block text-[0.78rem] font-medium text-text mb-2.5">
+              选择供应商
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {PROVIDER_PRESETS.map((preset) => {
+                const exists = PROVIDERS.some((p) => p.id === preset.id);
+                const selected = addSelected === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    disabled={exists}
+                    onClick={() => {
+                      setAddSelected(preset.id);
+                      setAddBaseUrl(preset.baseUrl);
+                      setAddCustomName("");
+                    }}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all cursor-pointer",
+                      exists
+                        ? "border-border-light bg-bg-alt opacity-50 cursor-not-allowed"
+                        : selected
+                          ? "border-primary bg-primary-light"
+                          : "border-border-light bg-surface hover:border-primary/40"
+                    )}
+                  >
+                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-[0.75rem] shrink-0", preset.iconBg)}>
+                      {preset.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <div className={cn("text-[0.8rem] font-medium truncate", selected ? "text-primary" : "text-text")}>
+                        {preset.name}
+                      </div>
+                      {exists && <div className="text-[0.65rem] text-text-muted">已添加</div>}
+                    </div>
+                  </button>
+                );
+              })}
+              {/* Custom option */}
+              <button
+                onClick={() => {
+                  setAddSelected("custom");
+                  setAddBaseUrl("");
+                  setAddCustomName("");
+                }}
+                className={cn(
+                  "flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all cursor-pointer",
+                  addSelected === "custom"
+                    ? "border-primary bg-primary-light"
+                    : "border-dashed border-border hover:border-primary/40"
+                )}
+              >
+                <div className="w-8 h-8 rounded-lg bg-bg-alt flex items-center justify-center shrink-0">
+                  <Globe size={16} className={addSelected === "custom" ? "text-primary" : "text-text-muted"} />
+                </div>
+                <div className="text-[0.8rem] font-medium text-text">
+                  自定义
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Configuration fields */}
+          {addSelected && (
+            <div className="space-y-4" style={{ animation: "fade-in 0.2s ease-out" }}>
+              {addSelected === "custom" && (
+                <div>
+                  <label className="block text-[0.78rem] font-medium text-text mb-1.5">
+                    供应商名称
+                  </label>
+                  <input
+                    type="text"
+                    value={addCustomName}
+                    onChange={(e) => setAddCustomName(e.target.value)}
+                    placeholder="如：Azure OpenAI"
+                    className={cn(
+                      "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
+                      "text-[0.8rem] text-text placeholder:text-text-muted",
+                      "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-colors"
+                    )}
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-[0.78rem] font-medium text-text mb-1.5">
+                  API Key
+                </label>
+                <input
+                  type="password"
+                  value={addApiKey}
+                  onChange={(e) => setAddApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
+                    "text-[0.8rem] text-text font-mono placeholder:text-text-muted",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-colors"
+                  )}
+                />
+              </div>
+              <div>
+                <label className="block text-[0.78rem] font-medium text-text mb-1.5">
+                  <span className="flex items-center gap-1.5">
+                    <Link2 size={13} />
+                    Base URL
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  value={addBaseUrl}
+                  onChange={(e) => setAddBaseUrl(e.target.value)}
+                  placeholder="https://api.example.com/v1"
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
+                    "text-[0.8rem] text-text font-mono placeholder:text-text-muted",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-colors"
+                  )}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2.5">
+                <div>
+                  <div className="text-[0.78rem] font-medium text-text">自动检测可用模型</div>
+                  <div className="text-[0.68rem] text-text-muted mt-0.5">连接后自动拉取供应商支持的模型列表</div>
+                </div>
+                <Toggle checked={addAutoDetect} onChange={setAddAutoDetect} />
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-2.5 pt-2">
+            <button
+              onClick={() => { setAddOpen(false); setAddSelected(null); setAddApiKey(""); setAddBaseUrl(""); setAddCustomName(""); }}
+              className="px-4 py-2 rounded-lg text-[0.8rem] font-medium text-text-secondary hover:text-text hover:bg-bg-alt transition-colors cursor-pointer"
+            >
+              取消
+            </button>
+            <button
+              disabled={!addSelected || !addApiKey}
+              className={cn(
+                "px-5 py-2 rounded-lg text-[0.8rem] font-medium transition-colors cursor-pointer shadow-sm",
+                addSelected && addApiKey
+                  ? "bg-primary text-white hover:bg-primary-hover active:bg-primary-active"
+                  : "bg-bg-alt text-text-muted cursor-not-allowed"
+              )}
+            >
+              连接并添加
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
+  );
+}
+
+function ModelPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropUp = spaceBelow < 340;
+    setStyle(
+      dropUp
+        ? { position: "fixed", bottom: window.innerHeight - rect.top + 6, right: window.innerWidth - rect.right, maxHeight: Math.min(320, rect.top - 20) }
+        : { position: "fixed", top: rect.bottom + 6, right: window.innerWidth - rect.right, maxHeight: Math.min(320, spaceBelow - 20) }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (
+        triggerRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      ) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  const handleToggle = () => {
+    if (!open) updatePosition();
+    setOpen((v) => !v);
+  };
+
+  const selected = MODELS.find((m) => m.id === value);
+  const provider = selected ? PROVIDERS.find((p) => p.name === selected.provider) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={handleToggle}
+        className={cn(
+          "flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border transition-all cursor-pointer shrink-0",
+          open ? "border-primary bg-primary-light/40" : "border-border-light bg-bg hover:border-border-hover"
+        )}
+      >
+        {provider && (
+          <span className={cn("w-5 h-5 rounded flex items-center justify-center text-white text-[0.6rem] font-bold shrink-0", provider.iconBg)}>
+            {provider.icon}
+          </span>
+        )}
+        <span className="text-[0.78rem] font-medium text-text">{selected?.name ?? "选择模型"}</span>
+        <ChevronDown size={12} className={cn("text-text-muted transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          className="w-[260px] bg-surface border border-border-light rounded-xl shadow-xl z-[9999] overflow-y-auto overscroll-contain"
+          style={{ ...style, animation: "scale-in 0.15s ease-out" }}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          {PROVIDERS.map((p) => {
+            const providerModels = MODELS.filter((m) => m.provider === p.name && m.status === "available");
+            if (providerModels.length === 0) return null;
+            return (
+              <div key={p.id}>
+                <div className="px-3 pt-2.5 pb-1 text-[0.65rem] font-semibold text-text-muted uppercase tracking-wider">
+                  {p.name}
+                </div>
+                {providerModels.map((m) => {
+                  const isSelected = m.id === value;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => { onChange(m.id); setOpen(false); }}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors cursor-pointer",
+                        isSelected ? "bg-primary-light" : "hover:bg-bg-alt"
+                      )}
+                    >
+                      <span className={cn("w-5 h-5 rounded flex items-center justify-center text-white text-[0.55rem] font-bold shrink-0", p.iconBg)}>
+                        {p.icon}
+                      </span>
+                      <span className={cn("text-[0.78rem] flex-1", isSelected ? "font-semibold text-primary" : "text-text")}>
+                        {m.name}
+                      </span>
+                      <span className="text-[0.65rem] text-text-muted font-mono">{m.price}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
   );
 }

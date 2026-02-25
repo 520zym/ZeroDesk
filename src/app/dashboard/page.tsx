@@ -1,22 +1,11 @@
-import { useState } from "react";
 import {
   ListChecks,
   Target,
   Coins,
   Zap,
-  ChevronDown,
-  Shield,
-  Eye,
-  EyeOff,
-  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Tabs, StatCard, Toggle } from "@/components/ui";
-
-const topTabs = [
-  { id: "dashboard", label: "数据看板" },
-  { id: "settings", label: "系统设置" },
-];
+import { StatCard } from "@/components/ui";
 
 const weeklyTasks = [
   { day: "Mon", value: 3 },
@@ -51,22 +40,17 @@ const timeBuckets = [
 ];
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState("dashboard");
-
   return (
     <div className="flex flex-col h-full overflow-hidden px-6 pt-5 pb-6">
       {/* Header */}
       <div
-        className="shrink-0 flex items-center justify-between mb-5"
+        className="shrink-0 mb-5"
         style={{ animation: "fade-in 0.3s ease-out" }}
       >
-        <p className="text-[0.82rem] text-text-secondary">
-          {activeTab === "dashboard" ? "全局数据可视化与关键指标监控" : "全局参数配置与偏好管理"}
-        </p>
-        <Tabs tabs={topTabs} activeTab={activeTab} onTabChange={setActiveTab} />
+        <p className="text-[0.82rem] text-text-secondary">全局数据可视化与关键指标监控</p>
       </div>
 
-      {activeTab === "dashboard" ? <DashboardView /> : <SettingsView />}
+      <DashboardView />
     </div>
   );
 }
@@ -277,231 +261,3 @@ function DashboardView() {
   );
 }
 
-function SettingsView() {
-  const [theme, setTheme] = useState("light");
-  const [language, setLanguage] = useState("zh-CN");
-  const [encryption, setEncryption] = useState(true);
-  const [taskNotify, setTaskNotify] = useState(true);
-  const [failNotify, setFailNotify] = useState(true);
-  const [budgetNotify, setBudgetNotify] = useState(false);
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [costTier, setCostTier] = useState("medium");
-  const [qualityGate, setQualityGate] = useState("standard");
-  const [archiveDays, setArchiveDays] = useState("30");
-
-  const toggleKeyVisibility = (key: string) => {
-    setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const apiKeys = [
-    { provider: "OpenAI", key: "sk-proj-****...****7xKa", id: "openai" },
-    { provider: "Anthropic", key: "sk-ant-****...****9mBq", id: "anthropic" },
-    { provider: "阿里云", key: "sk-ali-****...****3nPw", id: "aliyun" },
-  ];
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-[720px] space-y-6">
-        {/* General Settings */}
-        <SettingsSection
-          title="常规设置"
-          delay={60}
-        >
-          <SettingsRow label="界面语言">
-            <div className="relative">
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className={cn(
-                  "appearance-none rounded-lg border border-border-light bg-bg px-3 py-2 pr-8",
-                  "text-[0.78rem] text-text",
-                  "focus:outline-none focus:border-primary cursor-pointer"
-                )}
-              >
-                <option value="zh-CN">简体中文</option>
-                <option value="en-US">English</option>
-                <option value="ja-JP">日本語</option>
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            </div>
-          </SettingsRow>
-          <SettingsRow label="主题模式">
-            <div className="inline-flex items-center gap-1 bg-bg rounded-lg p-1">
-              {[
-                { id: "light", label: "浅色" },
-                { id: "dark", label: "深色" },
-                { id: "auto", label: "自动" },
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={() => setTheme(opt.id)}
-                  className={cn(
-                    "px-3 py-1 rounded-md text-[0.75rem] font-medium transition-all cursor-pointer",
-                    theme === opt.id
-                      ? "bg-surface text-text shadow-sm"
-                      : "text-text-muted hover:text-text-secondary"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </SettingsRow>
-        </SettingsSection>
-
-        {/* Security Settings */}
-        <SettingsSection
-          title="安全设置"
-          icon={<Shield size={15} className="text-primary" />}
-          delay={120}
-        >
-          <div className="mb-4">
-            <h4 className="text-[0.75rem] font-medium text-text-secondary mb-3">
-              API Key 管理
-            </h4>
-            <div className="space-y-2">
-              {apiKeys.map((ak) => (
-                <div
-                  key={ak.id}
-                  className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2.5"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-[0.78rem] font-medium text-text w-16">
-                      {ak.provider}
-                    </span>
-                    <span className="text-[0.75rem] text-text-muted font-mono">
-                      {showKeys[ak.id] ? "sk-real-key-would-be-here-abc123" : ak.key}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => toggleKeyVisibility(ak.id)}
-                    className="w-7 h-7 flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors cursor-pointer"
-                  >
-                    {showKeys[ak.id] ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-          <SettingsRow label="数据加密">
-            <Toggle checked={encryption} onChange={setEncryption} />
-          </SettingsRow>
-        </SettingsSection>
-
-        {/* Execution Settings */}
-        <SettingsSection
-          title="执行设置"
-          icon={<Zap size={15} className="text-sand" />}
-          delay={180}
-        >
-          <SettingsRow label="默认成本档位">
-            <div className="relative">
-              <select
-                value={costTier}
-                onChange={(e) => setCostTier(e.target.value)}
-                className={cn(
-                  "appearance-none rounded-lg border border-border-light bg-bg px-3 py-2 pr-8",
-                  "text-[0.78rem] text-text",
-                  "focus:outline-none focus:border-primary cursor-pointer"
-                )}
-              >
-                <option value="low">低 — 优先成本</option>
-                <option value="medium">中 — 平衡模式</option>
-                <option value="high">高 — 优先质量</option>
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            </div>
-          </SettingsRow>
-          <SettingsRow label="默认质量门禁">
-            <div className="relative">
-              <select
-                value={qualityGate}
-                onChange={(e) => setQualityGate(e.target.value)}
-                className={cn(
-                  "appearance-none rounded-lg border border-border-light bg-bg px-3 py-2 pr-8",
-                  "text-[0.78rem] text-text",
-                  "focus:outline-none focus:border-primary cursor-pointer"
-                )}
-              >
-                <option value="strict">严格 — 失败即停止</option>
-                <option value="standard">标准 — 允许降级重试</option>
-                <option value="loose">宽松 — 仅记录警告</option>
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-            </div>
-          </SettingsRow>
-          <SettingsRow label="自动归档天数">
-            <input
-              type="number"
-              value={archiveDays}
-              onChange={(e) => setArchiveDays(e.target.value)}
-              className={cn(
-                "w-[100px] rounded-lg border border-border-light bg-bg px-3 py-2",
-                "text-[0.78rem] text-text text-center",
-                "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
-                "transition-colors"
-              )}
-            />
-          </SettingsRow>
-        </SettingsSection>
-
-        {/* Notification Settings */}
-        <SettingsSection
-          title="通知"
-          icon={<Bell size={15} className="text-lavender" />}
-          delay={240}
-        >
-          <SettingsRow label="任务完成通知">
-            <Toggle checked={taskNotify} onChange={setTaskNotify} />
-          </SettingsRow>
-          <SettingsRow label="失败告警通知">
-            <Toggle checked={failNotify} onChange={setFailNotify} />
-          </SettingsRow>
-          <SettingsRow label="超预算告警">
-            <Toggle checked={budgetNotify} onChange={setBudgetNotify} />
-          </SettingsRow>
-        </SettingsSection>
-      </div>
-    </div>
-  );
-}
-
-function SettingsSection({
-  title,
-  icon,
-  delay = 0,
-  children,
-}: {
-  title: string;
-  icon?: React.ReactNode;
-  delay?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="bg-surface border border-border-light rounded-xl p-5"
-      style={{ animation: `fade-in 0.3s ease-out ${delay}ms both` }}
-    >
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border-light">
-        {icon}
-        <h3 className="text-[0.85rem] font-semibold text-text">{title}</h3>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
-}
-
-function SettingsRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-[0.78rem] text-text-secondary">{label}</span>
-      {children}
-    </div>
-  );
-}

@@ -42,7 +42,7 @@ export function Topbar({ title }: TopbarProps) {
         <Link
           to="/workspace"
           className="w-8 h-8 rounded-lg bg-transparent text-text-muted flex items-center justify-center transition-all hover:bg-bg-alt hover:text-text"
-          title="切换工作区"
+          title="首页"
         >
           <FolderOpen size={16} />
         </Link>

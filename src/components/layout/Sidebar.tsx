@@ -10,10 +10,10 @@ import {
   BookOpen,
   FileText,
   LayoutDashboard,
+  Settings,
   type LucideIcon,
   ChevronRight,
   Zap,
-  Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -100,9 +100,14 @@ export function Sidebar() {
             </div>
             <div className="space-y-1">
               {group.items.map((item) => {
-                const isActive =
-                  location.pathname === item.to ||
-                  location.pathname.startsWith(item.to + "/");
+                const isActive = (() => {
+                  if (location.pathname === item.to) return true;
+                  const taskSubPage = location.pathname.match(/^\/tasks\/[^/]+\/(\w+)/);
+                  if (taskSubPage) {
+                    return item.to === `/${taskSubPage[1]}`;
+                  }
+                  return location.pathname.startsWith(item.to + "/");
+                })();
                 return (
                   <NavLink
                     key={item.to}
@@ -150,20 +155,25 @@ export function Sidebar() {
       {/* Footer */}
       <div className="mx-3 h-px bg-border-light" />
       <div className="px-3 py-3">
-        <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-bg-alt transition-colors cursor-pointer group">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-coral to-sand flex items-center justify-center text-[0.65rem] font-bold text-white shrink-0 shadow-sm shadow-coral/20">
-            U
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-[0.8rem] text-text truncate leading-tight">
-              我的工作区
-            </div>
-            <div className="flex items-center gap-1 text-[0.68rem] text-text-muted mt-0.5">
-              <Circle size={6} className="fill-success text-success shrink-0" />
-              本地运行中
-            </div>
-          </div>
-        </div>
+        <NavLink
+          to="/settings"
+          className={cn(
+            "flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-all duration-150 no-underline cursor-pointer",
+            location.pathname === "/settings"
+              ? "bg-primary-light text-primary font-semibold"
+              : "text-text-secondary hover:bg-bg-alt hover:text-text"
+          )}
+        >
+          <Settings
+            size={18}
+            strokeWidth={location.pathname === "/settings" ? 2.2 : 1.8}
+            className={cn(
+              "shrink-0 transition-colors duration-150",
+              location.pathname === "/settings" ? "text-primary" : "text-text-muted"
+            )}
+          />
+          <span className="text-[0.85rem]">系统设置</span>
+        </NavLink>
       </div>
     </aside>
   );
