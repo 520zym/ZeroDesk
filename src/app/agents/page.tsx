@@ -335,6 +335,8 @@ export default function AgentsPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   // --- detail panel editable state ---
+  const [detailName, setDetailName] = useState("");
+  const [detailRole, setDetailRole] = useState("");
   const [detailPrompt, setDetailPrompt] = useState("");
   const [detailModel, setDetailModel] = useState("");
   const [detailFallback, setDetailFallback] = useState("");
@@ -347,6 +349,8 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (selectedAgent) {
+      setDetailName(selectedAgent.name);
+      setDetailRole(selectedAgent.role_description ?? "");
       setDetailPrompt(selectedAgent.system_prompt ?? "");
       setDetailModel(selectedAgent.model_id ?? "");
       setDetailFallback(selectedAgent.fallback_model_id ?? "");
@@ -359,13 +363,15 @@ export default function AgentsPage() {
     if (!selectedAgent || !detailDirty) return;
     updateAgent.mutate({
       id: selectedAgent.id,
+      name: detailName.trim() || undefined,
+      roleDescription: detailRole.trim() || undefined,
       systemPrompt: detailPrompt,
       modelId: detailModel || undefined,
       fallbackModelId: detailFallback || undefined,
       toolsJson: toolsToJson(detailTools),
     });
     setDetailDirty(false);
-  }, [selectedAgent, detailPrompt, detailModel, detailFallback, detailTools, detailDirty]);
+  }, [selectedAgent, detailName, detailRole, detailPrompt, detailModel, detailFallback, detailTools, detailDirty]);
 
   // --- create form state ---
   const [createName, setCreateName] = useState("");
@@ -460,8 +466,8 @@ export default function AgentsPage() {
     if (!selectedAgent) return;
     optimizePrompt.mutate(
       {
-        agentName: selectedAgent.name,
-        roleDescription: selectedAgent.role_description ?? "",
+        agentName: detailName.trim() || selectedAgent.name,
+        roleDescription: detailRole.trim() || selectedAgent.role_description ?? "",
         currentPrompt: detailPrompt,
       },
       {
@@ -648,28 +654,53 @@ export default function AgentsPage() {
       <Modal
         open={!!selectedAgent}
         onClose={() => setSelectedId(null)}
-        title={selectedAgent?.name ?? "Agent 详情"}
+        title="编辑 Agent"
         width="580px"
       >
         {selectedAgent && (
           <div className="space-y-5">
-            {/* Avatar + Role */}
-            <div className="flex items-center gap-3">
+            {/* Avatar + Name + Role */}
+            <div className="flex items-start gap-3">
               <Avatar
                 char={
+                  detailName.trim().charAt(0) ||
                   selectedAgent.avatar_char ??
                   selectedAgent.name.charAt(0)
                 }
                 color={selectedAgent.avatar_color ?? "bg-primary"}
                 size="xl"
               />
-              <div>
-                <div className="text-[0.95rem] font-semibold text-text">
-                  {selectedAgent.name}
-                </div>
-                <div className="text-[0.75rem] text-text-muted mt-0.5">
-                  {selectedAgent.role_description || "暂无描述"}
-                </div>
+              <div className="flex-1 min-w-0 space-y-2">
+                <input
+                  type="text"
+                  value={detailName}
+                  onChange={(e) => {
+                    setDetailName(e.target.value);
+                    setDetailDirty(true);
+                  }}
+                  placeholder="Agent 名称"
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
+                    "text-[0.85rem] font-semibold text-text placeholder:text-text-muted",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                    "transition-colors",
+                  )}
+                />
+                <input
+                  type="text"
+                  value={detailRole}
+                  onChange={(e) => {
+                    setDetailRole(e.target.value);
+                    setDetailDirty(true);
+                  }}
+                  placeholder="角色描述，如：负责网络搜索与信息聚合"
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-1.5",
+                    "text-[0.78rem] text-text-secondary placeholder:text-text-muted",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                    "transition-colors",
+                  )}
+                />
               </div>
             </div>
 
