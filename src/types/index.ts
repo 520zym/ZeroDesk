@@ -199,6 +199,21 @@ export interface ExecutionMessage {
   created_at: string;
 }
 
+// ─── Settings ────────────────────────────────────────────────
+
+export interface SystemSettings {
+  id: number;
+  theme: string;
+  language: string;
+  encryption: boolean;
+  archive_days: number;
+  task_notify: boolean;
+  fail_notify: boolean;
+  budget_notify: boolean;
+  data_path: string | null;
+  updated_at: string;
+}
+
 // ─── Dashboard ───────────────────────────────────────────────
 
 export interface DashboardKpi {

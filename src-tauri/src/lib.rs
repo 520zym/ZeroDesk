@@ -2,7 +2,7 @@ mod commands;
 mod db;
 mod models;
 
-use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, skills, tasks, teams, workspace};
+use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, settings, skills, tasks, teams, workspace};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -71,6 +71,9 @@ pub fn run() {
             prompts::create_prompt_version,
             prompts::list_workflow_templates,
             prompts::create_workflow_template,
+            // settings
+            settings::get_settings,
+            settings::update_settings,
             // dashboard
             dashboard::get_dashboard_kpis,
             dashboard::get_history_stats,

@@ -228,6 +228,20 @@ pub struct AuditLogEntry {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SystemSettings {
+    pub id: i64,
+    pub theme: String,
+    pub language: String,
+    pub encryption: bool,
+    pub archive_days: i64,
+    pub task_notify: bool,
+    pub fail_notify: bool,
+    pub budget_notify: bool,
+    pub data_path: Option<String>,
+    pub updated_at: String,
+}
+
 // --- Aggregate / response types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

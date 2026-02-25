@@ -4,6 +4,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 const MIGRATION_SQL: &str = include_str!("migrations/001_initial.sql");
+const MIGRATION_002_SQL: &str = include_str!("migrations/002_system_settings.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -24,10 +25,17 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
-    for statement in MIGRATION_SQL.split(';') {
-        let trimmed = statement.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with("--") {
-            sqlx::query(trimmed).execute(&pool).await?;
+    for sql in [MIGRATION_SQL, MIGRATION_002_SQL] {
+        let stripped: String = sql
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for statement in stripped.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
         }
     }
 

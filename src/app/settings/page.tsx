@@ -1,19 +1,23 @@
-import { useState } from "react";
 import {
   Bell,
   Database,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Toggle } from "@/components/ui";
+import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
 
 export default function SettingsPage() {
-  const [theme, setTheme] = useState("light");
-  const [language, setLanguage] = useState("zh-CN");
-  const [encryption, setEncryption] = useState(true);
-  const [archiveDays, setArchiveDays] = useState("30");
-  const [taskNotify, setTaskNotify] = useState(true);
-  const [failNotify, setFailNotify] = useState(true);
-  const [budgetNotify, setBudgetNotify] = useState(false);
+  const { data: settings, isLoading } = useSettings();
+  const { mutate: updateSettings } = useUpdateSettings();
+
+  if (isLoading || !settings) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 size={24} className="animate-spin text-text-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden px-6 pt-5 pb-6">
@@ -31,8 +35,8 @@ export default function SettingsPage() {
             <SettingsRow label="界面语言">
               <div className="relative">
                 <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
+                  value={settings.language}
+                  onChange={(e) => updateSettings({ language: e.target.value })}
                   className={cn(
                     "appearance-none rounded-lg border border-border-light bg-bg px-3 py-2 pr-8",
                     "text-[0.78rem] text-text",
@@ -55,10 +59,10 @@ export default function SettingsPage() {
                 ].map((opt) => (
                   <button
                     key={opt.id}
-                    onClick={() => setTheme(opt.id)}
+                    onClick={() => updateSettings({ theme: opt.id })}
                     className={cn(
                       "px-3 py-1 rounded-md text-[0.75rem] font-medium transition-all cursor-pointer",
-                      theme === opt.id
+                      settings.theme === opt.id
                         ? "bg-surface text-text shadow-sm"
                         : "text-text-muted hover:text-text-secondary"
                     )}
@@ -77,14 +81,22 @@ export default function SettingsPage() {
             delay={120}
           >
             <SettingsRow label="本地数据加密">
-              <Toggle checked={encryption} onChange={setEncryption} />
+              <Toggle
+                checked={settings.encryption}
+                onChange={(v) => updateSettings({ encryption: v })}
+              />
             </SettingsRow>
             <SettingsRow label="自动归档天数">
               <div className="flex items-center gap-2">
                 <input
                   type="number"
-                  value={archiveDays}
-                  onChange={(e) => setArchiveDays(e.target.value)}
+                  value={settings.archive_days}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val) && val > 0) {
+                      updateSettings({ archive_days: val });
+                    }
+                  }}
                   className={cn(
                     "w-[80px] rounded-lg border border-border-light bg-bg px-3 py-2",
                     "text-[0.78rem] text-text text-center",
@@ -96,7 +108,9 @@ export default function SettingsPage() {
               </div>
             </SettingsRow>
             <SettingsRow label="数据存储路径">
-              <span className="text-[0.75rem] text-text-muted font-mono">~/.zerodesk/data</span>
+              <span className="text-[0.75rem] text-text-muted font-mono">
+                {settings.data_path ?? "~/.zerodesk/data"}
+              </span>
             </SettingsRow>
           </SettingsSection>
 
@@ -107,13 +121,22 @@ export default function SettingsPage() {
             delay={180}
           >
             <SettingsRow label="任务完成通知">
-              <Toggle checked={taskNotify} onChange={setTaskNotify} />
+              <Toggle
+                checked={settings.task_notify}
+                onChange={(v) => updateSettings({ task_notify: v })}
+              />
             </SettingsRow>
             <SettingsRow label="失败告警通知">
-              <Toggle checked={failNotify} onChange={setFailNotify} />
+              <Toggle
+                checked={settings.fail_notify}
+                onChange={(v) => updateSettings({ fail_notify: v })}
+              />
             </SettingsRow>
             <SettingsRow label="超预算告警">
-              <Toggle checked={budgetNotify} onChange={setBudgetNotify} />
+              <Toggle
+                checked={settings.budget_notify}
+                onChange={(v) => updateSettings({ budget_notify: v })}
+              />
             </SettingsRow>
           </SettingsSection>
 
