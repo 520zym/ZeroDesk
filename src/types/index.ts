@@ -2,15 +2,20 @@
 
 export interface Task {
   id: string;
+  workspace_id: string;
   title: string;
   description: string | null;
   goal: string | null;
   status: string;
-  cost_tier: string;
-  plan_mode: string;
-  progress: number;
-  total_tokens: number;
-  total_cost: number;
+  cost_tier: string | null;
+  plan_mode: string | null;
+  quality_gate: string | null;
+  retry_policy: string | null;
+  over_budget_policy: string | null;
+  timeout_minutes: number | null;
+  total_tokens: number | null;
+  total_cost: number | null;
+  progress: number | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -19,17 +24,19 @@ export interface Task {
 export interface TaskStep {
   id: string;
   task_id: string;
-  agent_id: string;
   step_order: number;
-  action: string;
-  status: string;
-  input_data: string | null;
-  output_data: string | null;
-  started_at: string | null;
-  finished_at: string | null;
+  name: string;
+  description: string | null;
+  agent_id: string | null;
+  output_target: string | null;
+  status: string | null;
+  tokens_used: number | null;
+  duration_seconds: number | null;
+  created_at: string;
 }
 
 export interface TaskStats {
+  total: number;
   running: number;
   completed: number;
   failed: number;
@@ -240,10 +247,12 @@ export interface WorkflowTemplate {
 export interface ExecutionMessage {
   id: string;
   task_id: string;
-  agent_id: string;
-  role: string;
+  sender_type: string;
+  sender_id: string | null;
+  sender_name: string | null;
   content: string;
-  token_count: number;
+  content_type: string | null;
+  metadata_json: string | null;
   created_at: string;
 }
 

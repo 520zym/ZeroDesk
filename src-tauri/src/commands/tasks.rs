@@ -36,12 +36,15 @@ pub async fn create_task(
     cost_tier: Option<String>,
     plan_mode: Option<String>,
     timeout_minutes: Option<i64>,
+    quality_gate: Option<String>,
+    retry_policy: Option<String>,
+    over_budget_policy: Option<String>,
 ) -> Result<Task, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO tasks (id, workspace_id, title, description, goal, cost_tier, plan_mode, timeout_minutes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO tasks (id, workspace_id, title, description, goal, cost_tier, plan_mode, timeout_minutes, quality_gate, retry_policy, over_budget_policy)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )
     .bind(&id)
     .bind(workspace_id)
@@ -51,6 +54,9 @@ pub async fn create_task(
     .bind(&cost_tier.unwrap_or_else(|| "standard".into()))
     .bind(&plan_mode.unwrap_or_else(|| "ai".into()))
     .bind(timeout_minutes)
+    .bind(&quality_gate)
+    .bind(&retry_policy)
+    .bind(&over_budget_policy)
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;

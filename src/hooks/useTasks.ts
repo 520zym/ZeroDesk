@@ -27,6 +27,9 @@ export function useCreateTask() {
       costTier?: string;
       planMode?: string;
       timeoutMinutes?: number;
+      qualityGate?: string;
+      retryPolicy?: string;
+      overBudgetPolicy?: string;
     }) => tauriInvoke<Task>("create_task", params),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tasks"] });

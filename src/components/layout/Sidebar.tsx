@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTaskStats } from "@/hooks/useTasks";
 
 interface NavItem {
   to: string;
@@ -30,46 +31,60 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "工作",
-    items: [
-      { to: "/tasks", icon: CheckSquare, label: "任务中心", badge: "3", badgeColor: "bg-gradient-to-r from-primary to-lavender text-white" },
-      { to: "/console", icon: Terminal, label: "执行控制台" },
-      { to: "/history", icon: Clock, label: "任务历史" },
-    ],
-  },
-  {
-    label: "组织",
-    items: [
-      { to: "/agents", icon: User, label: "Agent 管理" },
-      { to: "/teams", icon: Users, label: "团队管理" },
-    ],
-  },
-  {
-    label: "能力",
-    items: [
-      { to: "/models", icon: Layers, label: "模型与路由" },
-      { to: "/skills", icon: Wrench, label: "Skills 中心" },
-    ],
-  },
-  {
-    label: "资产",
-    items: [
-      { to: "/knowledge", icon: BookOpen, label: "知识库" },
-      { to: "/prompts", icon: FileText, label: "Prompt 模板" },
-    ],
-  },
-  {
-    label: "洞察",
-    items: [
-      { to: "/dashboard", icon: LayoutDashboard, label: "数据看板" },
-    ],
-  },
-];
+function useNavGroups(): NavGroup[] {
+  const { data: stats } = useTaskStats();
+  const runningCount = stats?.running ?? 0;
+
+  return [
+    {
+      label: "工作",
+      items: [
+        {
+          to: "/tasks",
+          icon: CheckSquare,
+          label: "任务中心",
+          ...(runningCount > 0 && {
+            badge: String(runningCount),
+            badgeColor: "bg-gradient-to-r from-primary to-lavender text-white",
+          }),
+        },
+        { to: "/console", icon: Terminal, label: "执行控制台" },
+        { to: "/history", icon: Clock, label: "任务历史" },
+      ],
+    },
+    {
+      label: "组织",
+      items: [
+        { to: "/agents", icon: User, label: "Agent 管理" },
+        { to: "/teams", icon: Users, label: "团队管理" },
+      ],
+    },
+    {
+      label: "能力",
+      items: [
+        { to: "/models", icon: Layers, label: "模型与路由" },
+        { to: "/skills", icon: Wrench, label: "Skills 中心" },
+      ],
+    },
+    {
+      label: "资产",
+      items: [
+        { to: "/knowledge", icon: BookOpen, label: "知识库" },
+        { to: "/prompts", icon: FileText, label: "Prompt 模板" },
+      ],
+    },
+    {
+      label: "洞察",
+      items: [
+        { to: "/dashboard", icon: LayoutDashboard, label: "数据看板" },
+      ],
+    },
+  ];
+}
 
 export function Sidebar() {
   const location = useLocation();
+  const navGroups = useNavGroups();
 
   return (
     <aside className="w-[var(--sidebar-width)] min-w-[var(--sidebar-width)] bg-surface flex flex-col h-screen overflow-hidden select-none border-r border-border-light">
@@ -93,7 +108,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-3 overflow-y-auto space-y-5">
-        {NAV_GROUPS.map((group) => (
+        {navGroups.map((group) => (
           <div key={group.label}>
             <div className="px-2 pb-2 text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-text-muted/70">
               {group.label}
