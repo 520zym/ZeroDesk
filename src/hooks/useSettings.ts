@@ -22,6 +22,14 @@ interface UpdateSettingsPayload {
   skillsmp_api_key?: string;
 }
 
+export function useDataPath() {
+  return useQuery({
+    queryKey: ["data_path"],
+    queryFn: () => tauriInvoke<string>("get_data_path"),
+    staleTime: Infinity,
+  });
+}
+
 export function useUpdateSettings() {
   const qc = useQueryClient();
 

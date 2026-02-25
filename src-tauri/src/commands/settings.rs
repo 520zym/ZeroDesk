@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::models::SystemSettings;
+use crate::DataDir;
 
 #[tauri::command]
 pub async fn get_settings(pool: State<'_, SqlitePool>) -> Result<SystemSettings, String> {
@@ -57,4 +58,9 @@ pub async fn update_settings(
     .map_err(|e| e.to_string())?;
 
     get_settings(pool).await
+}
+
+#[tauri::command]
+pub async fn get_data_path(data_dir: State<'_, DataDir>) -> Result<String, String> {
+    Ok(data_dir.0.display().to_string())
 }

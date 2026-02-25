@@ -137,6 +137,12 @@ const SYSTEM_MODEL_TASKS = [
     desc: "任务完成后自动生成执行报告",
     icon: FileText,
   },
+  {
+    id: "translation",
+    label: "翻译",
+    desc: "Skills 市场搜索时将中文翻译为英文",
+    icon: Globe,
+  },
 ];
 
 const PROVIDER_PRESETS = [

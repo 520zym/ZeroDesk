@@ -2,7 +2,11 @@ mod commands;
 mod db;
 mod models;
 
+use std::path::PathBuf;
+
 use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, settings, skills, tasks, teams};
+
+pub struct DataDir(pub PathBuf);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +22,16 @@ pub fn run() {
                 db::init_db(&app_data_dir).await.expect("failed to initialize database")
             });
 
+            let data_dir = tauri::async_runtime::block_on(async {
+                resolve_data_dir(&pool, &app_data_dir).await
+            });
+
+            for sub in ["files", "exports", "logs", "skills"] {
+                std::fs::create_dir_all(data_dir.join(sub)).ok();
+            }
+
+            tracing::info!("Data directory resolved to {}", data_dir.display());
+            app.manage(DataDir(data_dir));
             app.manage(pool);
             Ok(())
         })
@@ -66,7 +80,11 @@ pub fn run() {
             skills::list_skills,
             skills::create_skill,
             skills::update_skill,
+            skills::delete_skill,
             skills::search_marketplace_skills,
+            skills::install_marketplace_skill,
+            skills::scan_external_skills,
+            skills::import_scanned_skill,
             // knowledge
             knowledge::list_knowledge_items,
             knowledge::get_knowledge_item,
@@ -81,6 +99,7 @@ pub fn run() {
             // settings
             settings::get_settings,
             settings::update_settings,
+            settings::get_data_path,
             // dashboard
             dashboard::get_dashboard_kpis,
             dashboard::get_history_stats,
@@ -88,4 +107,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+async fn resolve_data_dir(pool: &sqlx::SqlitePool, _app_data_dir: &std::path::Path) -> PathBuf {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT data_path FROM system_settings WHERE id = 1")
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+
+    let default_dir = dirs::home_dir()
+        .expect("failed to resolve home directory")
+        .join(".zerodesk");
+
+    let path = row
+        .and_then(|(p,)| p)
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(default_dir);
+
+    std::fs::create_dir_all(&path).ok();
+    path
 }

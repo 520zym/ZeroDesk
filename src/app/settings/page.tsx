@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Bell,
   Database,
@@ -10,11 +11,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Toggle } from "@/components/ui";
-import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
+import { useSettings, useUpdateSettings, useDataPath } from "@/hooks/useSettings";
 
 export default function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const { mutate: updateSettings } = useUpdateSettings();
+  const { data: dataPath } = useDataPath();
 
   if (isLoading || !settings) {
     return (
@@ -114,7 +116,7 @@ export default function SettingsPage() {
             </SettingsRow>
             <SettingsRow label="数据存储路径">
               <span className="text-[0.75rem] text-text-muted font-mono">
-                {settings.data_path ?? "~/.zerodesk/data"}
+                {dataPath ?? settings.data_path ?? "..."}
               </span>
             </SettingsRow>
           </SettingsSection>
@@ -161,15 +163,13 @@ export default function SettingsPage() {
               <span className="text-[0.72rem] text-text-muted">
                 前往
               </span>
-              <a
-                href="https://skillsmp.com/settings/api"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[0.72rem] text-primary hover:underline"
+              <button
+                onClick={() => openUrl("https://skillsmp.com/settings/api")}
+                className="inline-flex items-center gap-1 text-[0.72rem] text-primary hover:underline cursor-pointer border-none bg-transparent p-0 font-inherit"
               >
                 skillsmp.com/settings/api
                 <ExternalLink size={10} />
-              </a>
+              </button>
               <span className="text-[0.72rem] text-text-muted">
                 获取免费 API Key（500 次/天）
               </span>

@@ -6386,6 +6386,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "dirs",
  "reqwest",
  "serde",
  "serde_json",

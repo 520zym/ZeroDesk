@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Search,
   ChevronDown,
-  Settings,
   Trash2,
   ArrowUpCircle,
   Package,
@@ -11,10 +11,27 @@ import {
   Loader2,
   KeyRound,
   Sparkles,
+  Download,
+  Check,
+  X,
+  Github,
+  Clock,
+  FolderOpen,
+  ScanSearch,
+  Import,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Tabs } from "@/components/ui";
-import { useSkills, useMarketplaceSearch } from "@/hooks/useSkills";
+import { Tabs, Modal } from "@/components/ui";
+import {
+  useSkills,
+  useMarketplaceSearch,
+  useInstallMarketplaceSkill,
+  useDeleteSkill,
+  useScanExternalSkills,
+  useImportScannedSkill,
+} from "@/hooks/useSkills";
+import type { ScannedSkill, ScanPathInfo } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
 import type { Skill, MarketplaceSkill } from "@/types";
 
@@ -45,17 +62,33 @@ const SCOPE_STYLE: Record<string, { label: string; bg: string }> = {
   agent: { label: "Agent", bg: "bg-lavender-light text-[#6f5f80]" },
 };
 
+const SOURCE_STYLE: Record<string, { label: string; bg: string }> = {
+  marketplace: { label: "市场", bg: "bg-primary-light text-primary" },
+  external: { label: "外部导入", bg: "bg-sand-light text-[#a08b5b]" },
+  local: { label: "本地", bg: "bg-bg-alt text-text-secondary" },
+};
+
 export default function SkillsPage() {
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
   const [scopeFilter, setScopeFilter] = useState("all");
   const [marketQuery, setMarketQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanResults, setScanResults] = useState<ScannedSkill[] | null>(null);
+  const [scanPaths, setScanPaths] = useState<ScanPathInfo[] | null>(null);
+  const [importingPath, setImportingPath] = useState<string | null>(null);
+  const [importedPaths, setImportedPaths] = useState<Set<string>>(new Set());
+  const [importError, setImportError] = useState<string | null>(null);
+  const [showScanPaths, setShowScanPaths] = useState(false);
 
   const { data: installedSkills = [], isLoading: skillsLoading } = useSkills();
+  const scanExternal = useScanExternalSkills();
+  const importSkill = useImportScannedSkill();
   const { data: settings } = useSettings();
 
   const hasApiKey = !!settings?.skillsmp_api_key;
+  const installSkill = useInstallMarketplaceSkill();
 
   const {
     data: marketResult,
@@ -90,11 +123,48 @@ export default function SkillsPage() {
   const updatable = installedSkills.filter((s) => s.status === "update").length;
   const isMarket = activeTab === "market";
 
+  const handleScan = () => {
+    setScanOpen(true);
+    setScanResults(null);
+    setScanPaths(null);
+    setImportedPaths(new Set());
+    setImportError(null);
+    setShowScanPaths(false);
+    scanExternal.mutate(undefined, {
+      onSuccess: (data) => {
+        setScanResults(data.skills);
+        setScanPaths(data.scanned_paths);
+      },
+      onError: () => {
+        setScanResults([]);
+        setScanPaths([]);
+      },
+    });
+  };
+
+  const handleImport = (s: ScannedSkill) => {
+    setImportingPath(s.path);
+    setImportError(null);
+    const params = { name: s.name, path: s.path, sourceTool: s.source_tool, description: s.description ?? undefined };
+    importSkill.mutate(
+      params,
+      {
+        onSuccess: () => {
+          setImportingPath(null);
+          setImportedPaths((prev) => new Set(prev).add(s.path));
+        },
+        onError: (err) => {
+          setImportingPath(null);
+          setImportError(err instanceof Error ? err.message : String(err));
+          setTimeout(() => setImportError(null), 4000);
+        },
+      },
+    );
+  };
+
   return (
     <div className="flex gap-5 items-start">
-      {/* Left panel */}
       <div className="flex-1 min-w-0">
-        {/* Header */}
         <div
           className="flex items-center justify-between mb-5"
           style={{ animation: "fade-in 0.25s ease-out" }}
@@ -104,15 +174,27 @@ export default function SkillsPage() {
           </p>
         </div>
 
-        {/* Tabs */}
         <div
-          className="mb-4"
+          className="flex items-center justify-between mb-4"
           style={{ animation: "fade-in 0.25s ease-out 0.05s both" }}
         >
           <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
+          {!isMarket && (
+            <button
+              onClick={handleScan}
+              disabled={scanExternal.isPending}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.78rem] font-medium text-text-secondary hover:text-primary hover:bg-primary-light/40 transition-colors cursor-pointer bg-transparent border border-border-light hover:border-primary/30 disabled:opacity-50 shrink-0"
+            >
+              {scanExternal.isPending ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <ScanSearch size={13} />
+              )}
+              一键扫描
+            </button>
+          )}
         </div>
 
-        {/* Search toolbar */}
         <div
           className="flex items-center gap-2 mb-4"
           style={{ animation: "fade-in 0.25s ease-out 0.08s both" }}
@@ -169,7 +251,6 @@ export default function SkillsPage() {
           )}
         </div>
 
-        {/* Content */}
         {isMarket ? (
           <MarketplaceContent
             hasApiKey={hasApiKey}
@@ -178,6 +259,8 @@ export default function SkillsPage() {
             loading={marketLoading}
             error={marketError}
             errorMsg={marketErrorMsg}
+            installedSkills={installedSkills}
+            installSkill={installSkill}
           />
         ) : (
           <InstalledContent
@@ -188,12 +271,10 @@ export default function SkillsPage() {
         )}
       </div>
 
-      {/* Right aside */}
       <aside
         className="w-[280px] shrink-0 space-y-4 sticky top-0"
         style={{ animation: "fade-in 0.3s ease-out 0.12s both" }}
       >
-        {/* Scope panel */}
         <div className="bg-surface rounded-xl border border-border-light p-4 shadow-card">
           <h4 className="text-[0.85rem] font-semibold text-text mb-3">
             Skill 作用域
@@ -226,7 +307,6 @@ export default function SkillsPage() {
           </div>
         </div>
 
-        {/* Quick stats card */}
         <div className="bg-surface rounded-xl border border-border-light p-4 shadow-card">
           <h4 className="text-[0.85rem] font-semibold text-text mb-3">
             统计概览
@@ -261,6 +341,167 @@ export default function SkillsPage() {
           </div>
         </div>
       </aside>
+
+      {/* Scan results modal */}
+      {scanOpen && (
+        <Modal open onClose={() => setScanOpen(false)} title="扫描外部 Skills" width="640px">
+          <div className="space-y-4">
+            {scanExternal.isPending ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <Loader2 size={24} className="animate-spin text-primary" />
+                <span className="text-[0.82rem] text-text-muted">正在扫描本地 AI 工具目录...</span>
+              </div>
+            ) : (
+              <>
+                {/* Error toast */}
+                {importError && (
+                  <div className="px-3 py-2 rounded-lg bg-coral-light text-[#9a5858] text-[0.78rem] font-medium flex items-center gap-2" style={{ animation: "fade-in 0.2s ease-out" }}>
+                    <X size={14} className="shrink-0" />
+                    <span className="truncate">{importError}</span>
+                  </div>
+                )}
+
+                {/* Summary bar */}
+                {scanPaths && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {(() => {
+                        const detected = scanPaths.filter((p) => p.exists).length;
+                        const withSkills = scanPaths.filter((p) => p.found > 0).length;
+                        return (
+                          <>
+                            <span className="text-[0.78rem] text-text-secondary">
+                              扫描了 <b className="text-text">{scanPaths.length}</b> 个路径，
+                              <b className="text-text">{detected}</b> 个存在，
+                              <b className="text-success">{withSkills}</b> 个有 Skills
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <button
+                      onClick={() => setShowScanPaths(!showScanPaths)}
+                      className="text-[0.72rem] text-primary hover:underline cursor-pointer bg-transparent border-none p-0"
+                    >
+                      {showScanPaths ? "收起路径" : "查看扫描路径"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Collapsible scanned paths */}
+                {showScanPaths && scanPaths && (
+                  <div className="rounded-lg border border-border-light/60 overflow-hidden" style={{ animation: "fade-in 0.15s ease-out" }}>
+                    <div className="divide-y divide-border-light/40">
+                      {scanPaths.map((sp) => (
+                        <div key={sp.path} className="flex items-center gap-2 px-3 py-1.5">
+                          <span className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0",
+                            sp.exists ? (sp.found > 0 ? "bg-success" : "bg-text-muted/40") : "bg-text-muted/20"
+                          )} />
+                          <span className="text-[0.7rem] font-medium text-text-secondary w-[120px] shrink-0 truncate">{sp.tool}</span>
+                          <span className={cn(
+                            "text-[0.68rem] font-mono truncate flex-1",
+                            sp.exists ? "text-text-muted" : "text-text-muted/40"
+                          )}>{sp.path}</span>
+                          <span className={cn(
+                            "text-[0.65rem] font-medium shrink-0 w-[52px] text-right",
+                            !sp.exists ? "text-text-muted/30" : sp.found > 0 ? "text-success" : "text-text-muted/50"
+                          )}>
+                            {!sp.exists ? "不存在" : sp.found > 0 ? `${sp.found} 个` : "空"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Results grouped by tool */}
+                {scanResults && scanResults.length === 0 ? (
+                  <div className="flex flex-col items-center py-10 gap-2">
+                    <ScanSearch size={28} className="text-text-muted/30" />
+                    <p className="text-[0.82rem] text-text-muted">未发现可导入的外部 Skills</p>
+                    <p className="text-[0.72rem] text-text-muted/60">
+                      点击上方「查看扫描路径」查看各工具的扫描目录
+                    </p>
+                  </div>
+                ) : scanResults && scanResults.length > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[0.78rem] text-text-secondary font-medium">
+                        发现 {scanResults.length - importedPaths.size} 个可导入
+                        {importedPaths.size > 0 && (
+                          <span className="text-success ml-1.5">（已导入 {importedPaths.size} 个）</span>
+                        )}
+                      </span>
+                    </div>
+                    <p className="text-[0.72rem] text-text-muted/60 -mt-2">
+                      导入仅创建引用，不会复制或移动原始文件
+                    </p>
+                    <div className="space-y-1.5 max-h-[340px] overflow-y-auto pr-1">
+                      {scanResults.map((s) => {
+                        const imported = importedPaths.has(s.path);
+                        const importing = importingPath === s.path;
+                        return (
+                          <div
+                            key={s.path}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors",
+                              imported
+                                ? "bg-sage-light/30 border-success/20"
+                                : "bg-bg/60 border-border-light/60 hover:border-border-hover"
+                            )}
+                          >
+                            <div className={cn(
+                              "w-8 h-8 rounded-lg flex items-center justify-center text-[0.65rem] font-bold shrink-0",
+                              imported
+                                ? "bg-sage-light text-success"
+                                : "bg-gradient-to-br from-primary/15 to-lavender/15 text-primary"
+                            )}>
+                              {imported ? <Check size={14} /> : s.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn("text-[0.8rem] font-semibold truncate", imported ? "text-text-muted" : "text-text")}>{s.name}</span>
+                                <span className="inline-flex px-1.5 py-0.5 rounded text-[0.62rem] font-medium bg-sage-light text-[#5a7a6b] shrink-0">
+                                  {s.source_tool}
+                                </span>
+                              </div>
+                              {s.description ? (
+                                <p className="text-[0.7rem] text-text-muted/70 mt-0.5 line-clamp-1">{s.description}</p>
+                              ) : (
+                                <p className="text-[0.68rem] text-text-muted/40 mt-0.5 font-mono truncate">{s.path}</p>
+                              )}
+                            </div>
+                            {imported ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 text-[0.7rem] font-medium text-success shrink-0">
+                                <Check size={12} />
+                                已导入
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleImport(s)}
+                                disabled={importing}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[0.72rem] font-medium bg-primary text-white hover:bg-primary-hover transition-colors cursor-pointer border-none shadow-sm shrink-0 disabled:opacity-50"
+                              >
+                                {importing ? (
+                                  <Loader2 size={11} className="animate-spin" />
+                                ) : (
+                                  <Import size={11} />
+                                )}
+                                导入
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -276,6 +517,21 @@ function InstalledContent({
   loading: boolean;
   activeTab: string;
 }) {
+  const [detailSkill, setDetailSkill] = useState<Skill | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
+
+  const deleteSkill = useDeleteSkill();
+
+  const handleDelete = () => {
+    if (!deleteTarget) return;
+    deleteSkill.mutate(deleteTarget.id, {
+      onSuccess: () => {
+        setDeleteTarget(null);
+        if (detailSkill?.id === deleteTarget.id) setDetailSkill(null);
+      },
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -293,21 +549,98 @@ function InstalledContent({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-      {skills.map((skill, i) => (
-        <InstalledSkillCard key={skill.id} skill={skill} index={i} />
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {skills.map((skill, i) => (
+          <InstalledSkillCard
+            key={skill.id}
+            skill={skill}
+            index={i}
+            onShowDetail={() => setDetailSkill(skill)}
+            onDelete={() => setDeleteTarget(skill)}
+          />
+        ))}
+      </div>
+
+      {detailSkill && (
+        <InstalledSkillDetailModal
+          skill={detailSkill}
+          onClose={() => setDetailSkill(null)}
+          onDelete={() => {
+            setDeleteTarget(detailSkill);
+          }}
+        />
+      )}
+
+      {deleteTarget && (
+        <Modal open onClose={() => setDeleteTarget(null)} title="确认卸载" width="420px">
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-danger-light flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} className="text-danger" />
+              </div>
+              <div>
+                <p className="text-[0.85rem] text-text font-medium">
+                  确定要卸载「{deleteTarget.name}」吗？
+                </p>
+                <p className="text-[0.78rem] text-text-muted mt-1">
+                  {deleteTarget.source === "marketplace"
+                    ? "这将同时删除本地已下载的 Skill 文件和数据库记录，此操作不可撤销。"
+                    : "这将移除该 Skill 的数据库记录。"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border-light/60">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 rounded-lg text-[0.8rem] font-medium text-text-secondary hover:bg-bg-alt transition-colors cursor-pointer border-none bg-transparent"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteSkill.isPending}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.8rem] font-medium text-white bg-danger hover:bg-danger/90 transition-colors cursor-pointer border-none shadow-sm disabled:opacity-50"
+              >
+                {deleteSkill.isPending ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+                确认卸载
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
-function InstalledSkillCard({ skill, index }: { skill: Skill; index: number }) {
+function InstalledSkillCard({
+  skill,
+  index,
+  onShowDetail,
+  onDelete,
+}: {
+  skill: Skill;
+  index: number;
+  onShowDetail: () => void;
+  onDelete: () => void;
+}) {
   const scopeInfo = SCOPE_STYLE[skill.scope ?? "global"] ?? SCOPE_STYLE.global;
+  const sourceInfo = SOURCE_STYLE[skill.source ?? "local"] ?? SOURCE_STYLE.local;
+
+  let cardSourceTool: string | null = null;
+  if (skill.source === "external" && skill.permissions_json) {
+    try { cardSourceTool = JSON.parse(skill.permissions_json).source_tool ?? null; } catch { /* */ }
+  }
 
   return (
     <div
-      className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col"
+      className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col cursor-pointer"
       style={{ animation: `fade-in 0.3s ease-out ${index * 0.05}s both` }}
+      onClick={onShowDetail}
     >
       <div className="flex items-start gap-3 mb-3">
         <div
@@ -326,7 +659,7 @@ function InstalledSkillCard({ skill, index }: { skill: Skill; index: number }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 mb-3">
+      <div className="flex items-center gap-1.5 flex-wrap mb-3">
         {skill.version && (
           <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
             v{skill.version}
@@ -335,9 +668,12 @@ function InstalledSkillCard({ skill, index }: { skill: Skill; index: number }) {
         <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium", scopeInfo.bg)}>
           {scopeInfo.label}
         </span>
-        {skill.source === "marketplace" && (
-          <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-primary-light text-primary">
-            市场
+        <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium", sourceInfo.bg)}>
+          {sourceInfo.label}
+        </span>
+        {cardSourceTool && (
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-sage-light text-[#5a7a6b]">
+            来自 {cardSourceTool}
           </span>
         )}
       </div>
@@ -356,18 +692,138 @@ function InstalledSkillCard({ skill, index }: { skill: Skill; index: number }) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-text hover:bg-bg-alt transition-colors cursor-pointer bg-transparent border-none">
-            <Settings size={11} />
-            配置
-          </button>
-          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-danger hover:bg-danger-light transition-colors cursor-pointer bg-transparent border-none">
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={onDelete}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-danger hover:bg-danger-light transition-colors cursor-pointer bg-transparent border-none"
+          >
             <Trash2 size={11} />
             卸载
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+// --- Installed Skill Detail Modal ---
+
+function InstalledSkillDetailModal({
+  skill,
+  onClose,
+  onDelete,
+}: {
+  skill: Skill;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
+  const scopeInfo = SCOPE_STYLE[skill.scope ?? "global"] ?? SCOPE_STYLE.global;
+  const sourceInfo = SOURCE_STYLE[skill.source ?? "local"] ?? SOURCE_STYLE.local;
+
+  let installPath: string | null = null;
+  let repoUrl: string | null = null;
+  let sourceTool: string | null = null;
+
+  if (skill.permissions_json) {
+    try {
+      const meta = JSON.parse(skill.permissions_json);
+      installPath = meta.install_path ?? null;
+      repoUrl = meta.repo ?? null;
+      sourceTool = meta.source_tool ?? null;
+    } catch {
+      // ignore
+    }
+  }
+  if (!installPath && skill.scope_id) {
+    installPath = skill.scope_id;
+  }
+
+  return (
+    <Modal open onClose={onClose} title={skill.name} width="560px">
+      <div className="space-y-5">
+        <div className="flex items-start gap-4">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center text-[1rem] font-bold text-white shrink-0"
+            style={{ backgroundColor: skill.icon_bg ?? "#6C8FC7" }}
+          >
+            {skill.name.slice(0, 2).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[1.05rem] font-semibold text-text">
+              {skill.name}
+            </h3>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium", scopeInfo.bg)}>
+                {scopeInfo.label}
+              </span>
+              <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium", sourceInfo.bg)}>
+                {sourceInfo.label}
+              </span>
+              {sourceTool && (
+                <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-sage-light text-[#5a7a6b]">
+                  来自 {sourceTool}
+                </span>
+              )}
+              {skill.version && (
+                <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
+                  v{skill.version}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="text-[0.78rem] font-semibold text-text mb-2">描述</h4>
+          <p className="text-[0.82rem] text-text-secondary leading-relaxed whitespace-pre-line">
+            {skill.description ?? "暂无描述"}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {installPath && (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-bg/60 border border-border-light/60">
+              <FolderOpen size={14} className="text-text-muted shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-[0.68rem] text-text-muted">安装位置</div>
+                <div className="text-[0.75rem] text-text font-medium font-mono break-all">{installPath}</div>
+              </div>
+            </div>
+          )}
+          {repoUrl && (
+            <button
+              onClick={() => openUrl(repoUrl!)}
+              className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg bg-bg/60 border border-border-light/60 hover:border-primary/40 hover:bg-primary-light/20 transition-colors cursor-pointer text-left"
+            >
+              <Github size={14} className="text-text-muted shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[0.68rem] text-text-muted">GitHub 仓库</div>
+                <div className="text-[0.75rem] text-text font-medium truncate">
+                  {repoUrl.replace("https://github.com/", "")}
+                </div>
+              </div>
+            </button>
+          )}
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-bg/60 border border-border-light/60">
+            <Clock size={14} className="text-text-muted shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[0.68rem] text-text-muted">安装时间</div>
+              <div className="text-[0.75rem] text-text font-medium">{skill.created_at?.slice(0, 16).replace("T", " ") ?? "-"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border-light/60">
+          <button
+            onClick={() => { onDelete(); onClose(); }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.8rem] font-medium text-danger hover:bg-danger-light transition-colors cursor-pointer border-none bg-transparent"
+          >
+            <Trash2 size={13} />
+            卸载
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -380,6 +836,8 @@ function MarketplaceContent({
   loading,
   error,
   errorMsg,
+  installedSkills,
+  installSkill,
 }: {
   hasApiKey: boolean;
   query: string;
@@ -387,7 +845,39 @@ function MarketplaceContent({
   loading: boolean;
   error: boolean;
   errorMsg: unknown;
+  installedSkills: Skill[];
+  installSkill: ReturnType<typeof useInstallMarketplaceSkill>;
 }) {
+  const [detailSkill, setDetailSkill] = useState<MarketplaceSkill | null>(null);
+  const [installingRepo, setInstallingRepo] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
+
+  const installedNames = new Set(
+    installedSkills.filter((s) => s.source === "marketplace").map((s) => s.name),
+  );
+
+  const handleInstall = (skill: MarketplaceSkill) => {
+    const repo = skill.repo ?? skill.name ?? "";
+    setInstallingRepo(repo);
+    setInstallError(null);
+    installSkill.mutate(
+      {
+        name: skill.name ?? "未命名 Skill",
+        description: skill.description ?? undefined,
+        repo: skill.repo ?? undefined,
+        category: skill.category ?? undefined,
+      },
+      {
+        onSuccess: () => setInstallingRepo(null),
+        onError: (err) => {
+          setInstallingRepo(null);
+          setInstallError(err instanceof Error ? err.message : String(err));
+          setTimeout(() => setInstallError(null), 4000);
+        },
+      },
+    );
+  };
+
   if (!hasApiKey) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3">
@@ -399,14 +889,12 @@ function MarketplaceContent({
           前往{" "}
           <a href="/settings" className="text-primary hover:underline">设置页面</a>
           {" "}填写 API Key，即可通过 AI 语义搜索浏览来自{" "}
-          <a
-            href="https://skillsmp.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
+          <button
+            onClick={() => openUrl("https://skillsmp.com")}
+            className="text-primary hover:underline cursor-pointer border-none bg-transparent p-0 font-inherit text-[inherit]"
           >
             SkillsMP
-          </a>
+          </button>
           {" "}的 28 万+ 开源 Skills
         </p>
       </div>
@@ -454,25 +942,195 @@ function MarketplaceContent({
 
   return (
     <>
+      {installError && (
+        <div
+          className="mb-3 px-4 py-2.5 rounded-lg bg-coral-light text-[#9a5858] text-[0.78rem] font-medium flex items-center gap-2"
+          style={{ animation: "fade-in 0.2s ease-out" }}
+        >
+          <X size={14} />
+          {installError}
+        </div>
+      )}
       <div className="mb-3 text-[0.75rem] text-text-muted">
         共找到 {result.total} 个相关 Skill
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {result.skills.map((skill, i) => (
-          <MarketplaceSkillCard key={`${skill.repo}-${skill.name}-${i}`} skill={skill} index={i} />
-        ))}
+        {result.skills.map((skill, i) => {
+          const repo = skill.repo ?? skill.name ?? "";
+          const isInstalled = !!(skill.name && installedNames.has(skill.name));
+          const isInstalling = installingRepo === repo;
+
+          return (
+            <MarketplaceSkillCard
+              key={`${skill.repo}-${skill.name}-${i}`}
+              skill={skill}
+              index={i}
+              installed={isInstalled}
+              onInstall={() => handleInstall(skill)}
+              installing={isInstalling}
+              onShowDetail={() => setDetailSkill(skill)}
+            />
+          );
+        })}
       </div>
+
+      {detailSkill && (
+        <MarketplaceDetailModal
+          skill={detailSkill}
+          installed={!!(detailSkill.name && installedNames.has(detailSkill.name))}
+          installing={installingRepo === (detailSkill.repo ?? detailSkill.name ?? "")}
+          onInstall={() => handleInstall(detailSkill)}
+          onClose={() => setDetailSkill(null)}
+        />
+      )}
     </>
   );
 }
 
-function MarketplaceSkillCard({ skill, index }: { skill: MarketplaceSkill; index: number }) {
+// --- Marketplace Skill Detail Modal ---
+
+function MarketplaceDetailModal({
+  skill,
+  installed,
+  installing,
+  onInstall,
+  onClose,
+}: {
+  skill: MarketplaceSkill;
+  installed: boolean;
+  installing: boolean;
+  onInstall: () => void;
+  onClose: () => void;
+}) {
+  const repoShort = skill.repo?.replace("https://github.com/", "") ?? "";
+
+  return (
+    <Modal open onClose={onClose} title={skill.name ?? "Skill 详情"} width="560px">
+      <div className="space-y-5">
+        <div className="flex items-start gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-lavender/20 flex items-center justify-center text-[1rem] font-bold text-primary shrink-0">
+            {(skill.name ?? "SK").slice(0, 2).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[1.05rem] font-semibold text-text">
+              {skill.name ?? "未命名"}
+            </h3>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {skill.category && (
+                <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-primary-light text-primary">
+                  {skill.category}
+                </span>
+              )}
+              {skill.stars != null && skill.stars > 0 && (
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-sand-light text-[#a08b5b]">
+                  <Star size={10} />
+                  {skill.stars >= 1000 ? `${(skill.stars / 1000).toFixed(1)}k` : skill.stars}
+                </span>
+              )}
+              {installed && (
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-sage-light text-success">
+                  <Check size={10} />
+                  已安装
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="text-[0.78rem] font-semibold text-text mb-2">描述</h4>
+          <p className="text-[0.82rem] text-text-secondary leading-relaxed whitespace-pre-line">
+            {skill.description ?? "暂无描述"}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {repoShort && (
+            <button
+              onClick={() => skill.repo && openUrl(skill.repo)}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-bg/60 border border-border-light/60 hover:border-primary/40 hover:bg-primary-light/20 transition-colors cursor-pointer text-left"
+            >
+              <Github size={14} className="text-text-muted shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[0.68rem] text-text-muted">仓库</div>
+                <div className="text-[0.75rem] text-text font-medium truncate">{repoShort}</div>
+              </div>
+            </button>
+          )}
+          {skill.updated_at && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-bg/60 border border-border-light/60">
+              <Clock size={14} className="text-text-muted shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[0.68rem] text-text-muted">更新时间</div>
+                <div className="text-[0.75rem] text-text font-medium">{skill.updated_at.slice(0, 10)}</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border-light/60">
+          {skill.url && (
+            <button
+              onClick={() => openUrl(skill.url!)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.8rem] font-medium text-text-secondary hover:text-text hover:bg-bg-alt transition-colors cursor-pointer border-none bg-transparent"
+            >
+              <ExternalLink size={13} />
+              在浏览器中查看
+            </button>
+          )}
+          {installed ? (
+            <span className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[0.8rem] font-medium text-success bg-sage-light">
+              <Check size={14} />
+              已安装
+            </span>
+          ) : (
+            <button
+              onClick={onInstall}
+              disabled={installing}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[0.8rem] font-medium transition-all cursor-pointer border-none shadow-sm",
+                "bg-primary text-white hover:bg-primary-hover active:bg-primary-active",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+            >
+              {installing ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              {installing ? "正在下载文件..." : "安装到本地"}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// --- Marketplace Skill Card ---
+
+function MarketplaceSkillCard({
+  skill,
+  index,
+  installed,
+  onInstall,
+  installing,
+  onShowDetail,
+}: {
+  skill: MarketplaceSkill;
+  index: number;
+  installed: boolean;
+  onInstall: () => void;
+  installing: boolean;
+  onShowDetail: () => void;
+}) {
   const repoShort = skill.repo?.replace("https://github.com/", "") ?? "";
 
   return (
     <div
-      className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col"
+      className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col cursor-pointer"
       style={{ animation: `fade-in 0.3s ease-out ${index * 0.04}s both` }}
+      onClick={onShowDetail}
     >
       <div className="flex items-start gap-3 mb-3">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-lavender/20 flex items-center justify-center text-[0.75rem] font-bold text-primary shrink-0">
@@ -508,22 +1166,34 @@ function MarketplaceSkillCard({ skill, index }: { skill: MarketplaceSkill; index
       </div>
 
       <div className="flex items-center justify-between mt-auto pt-2 border-t border-border-light/60">
-        {skill.updated_at && (
+        {skill.updated_at ? (
           <span className="text-[0.7rem] text-text-muted">
             {skill.updated_at.slice(0, 10)}
           </span>
-        )}
-        <div className="flex items-center gap-1 ml-auto">
-          {skill.url && (
-            <a
-              href={skill.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-primary hover:bg-primary-light transition-colors"
+        ) : <span />}
+        <div className="flex items-center gap-1.5 ml-auto" onClick={(e) => e.stopPropagation()}>
+          {installed ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[0.72rem] font-medium text-success bg-sage-light">
+              <Check size={12} />
+              已安装
+            </span>
+          ) : (
+            <button
+              onClick={onInstall}
+              disabled={installing}
+              className={cn(
+                "inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[0.72rem] font-medium transition-all cursor-pointer border-none",
+                "bg-primary text-white hover:bg-primary-hover active:bg-primary-active shadow-sm",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
             >
-              <ExternalLink size={11} />
-              查看
-            </a>
+              {installing ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Download size={12} />
+              )}
+              {installing ? "下载中..." : "安装"}
+            </button>
           )}
         </div>
       </div>
