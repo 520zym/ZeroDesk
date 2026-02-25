@@ -99,8 +99,11 @@ function formatDuration(startIso: string, endIso?: string | null): string {
 
 function formatDurationSeconds(secs: number | null): string {
   if (secs == null || secs <= 0) return "-";
-  if (secs < 60) return `${secs}s`;
-  return `${Math.floor(secs / 60)}m${secs % 60}s`;
+  const total = Math.round(secs);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m === 0) return `${s}秒`;
+  return `${m}分${s}秒`;
 }
 
 function tryParseTable(content: string): { headers: string[]; rows: string[][] } | null {
