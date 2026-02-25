@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="console">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroDesk — 执行控制台</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .console-layout {
+      display: flex;
+      gap: 0;
+      height: 100%;
+      min-height: 0;
+    }
+
+    /* ---- Left Column: Agent Panel ---- */
+    .agent-panel {
+      width: 210px;
+      min-width: 210px;
+      background: var(--surface);
+      border-right: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 20px 16px;
+    }
+    .agent-panel-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .agent-list { display: flex; flex-direction: column; gap: 6px; }
+    .agent-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+    .agent-item:hover { background: var(--bg); }
+    .agent-item.active { background: var(--primary-light); }
+    .agent-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .agent-status-dot {
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 2px solid var(--surface);
+    }
+    .agent-status-dot.online { background: var(--success); }
+    .agent-status-dot.waiting { background: var(--border); }
+    .agent-item.active .agent-status-dot { border-color: var(--primary-light); }
+    .agent-info { min-width: 0; flex: 1; }
+    .agent-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .agent-role {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .agent-stats {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .agent-stats span { display: flex; justify-content: space-between; }
+    .agent-stats .val { color: var(--text-secondary); font-family: var(--font-mono); font-weight: 500; }
+
+    /* ---- Center Column: Message Stream ---- */
+    .stream-panel {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+    .stream-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-light);
+      flex-wrap: wrap;
+    }
+    .stream-toolbar .toolbar-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: var(--radius);
+      font-size: 0.8rem;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all var(--transition);
+      font-family: var(--font);
+    }
+    .toolbar-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+    .toolbar-btn.danger:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-light); }
+    .toolbar-btn svg { flex-shrink: 0; }
+    .stream-task-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-light);
+    }
+    .stream-task-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .msg-stream {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .msg-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      animation: fadeIn 0.3s ease both;
+    }
+    .msg-row.system { justify-content: center; }
+    .msg-row .msg-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .msg-content { flex: 1; min-width: 0; }
+    .msg-sender {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .msg-sender .msg-time { font-weight: 400; color: var(--text-muted); font-size: 0.7rem; }
+    .msg-bubble { position: relative; }
+    .msg-bubble.agent .data-table {
+      margin-top: 10px;
+      width: 100%;
+      font-size: 0.8rem;
+      border-collapse: collapse;
+    }
+    .msg-bubble.agent .data-table th {
+      text-align: left;
+      padding: 6px 10px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border-light);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .msg-bubble.agent .data-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border-light);
+      color: var(--text);
+      font-size: 0.8rem;
+    }
+    .msg-bubble.agent .data-table tr:last-child td { border-bottom: none; }
+
+    .typing-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .typing-indicator .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    .stream-input {
+      padding: 14px 20px;
+      background: var(--surface);
+      border-top: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .stream-input input {
+      flex: 1;
+      padding: 10px 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      font-size: 0.88rem;
+      color: var(--text);
+      background: var(--bg);
+      font-family: var(--font);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+    .stream-input input:focus { border-color: var(--primary); }
+    .stream-input input::placeholder { color: var(--text-muted); }
+    .stream-input .send-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: none;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      flex-shrink: 0;
+    }
+    .stream-input .send-btn:hover { background: var(--primary-hover); transform: scale(1.05); }
+
+    /* ---- Right Column: Metrics Panel ---- */
+    .metrics-panel {
+      width: 228px;
+      min-width: 228px;
+      background: var(--surface);
+      border-left: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 20px 16px;
+    }
+    .metrics-panel-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .metric-cards { display: flex; flex-direction: column; gap: 10px; }
+    .metric-card {
+      padding: 14px;
+      background: var(--bg);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .metric-card .metric-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .metric-card .metric-value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .metric-card .metric-sub {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .metric-card .progress-bar { margin-top: 6px; height: 5px; }
+
+    .node-list { display: flex; flex-direction: column; gap: 4px; margin-top: 20px; }
+    .node-list-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+    .node-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      transition: background var(--transition);
+    }
+    .node-item:hover { background: var(--bg); }
+    .node-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .node-dot.done { background: var(--success); }
+    .node-dot.active { background: var(--primary); animation: pulse 2s ease-in-out infinite; }
+    .node-dot.pending { background: var(--border); }
+    .node-label { flex: 1; color: var(--text); font-weight: 500; }
+    .node-status { font-size: 0.7rem; color: var(--text-muted); }
+    .node-item.done .node-label { color: var(--text-secondary); }
+    .node-item.done .node-status { color: var(--success); }
+    .node-item.active .node-label { color: var(--primary-active); font-weight: 600; }
+    .node-item.active .node-status { color: var(--primary); }
+
+    .node-connector {
+      width: 2px;
+      height: 10px;
+      background: var(--border-light);
+      margin-left: 15px;
+    }
+
+    @media (max-width: 1080px) {
+      .agent-panel { display: none; }
+      .metrics-panel { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="page-content">
+    <div class="console-layout">
+
+      <!-- Left Column: Agent Status Panel -->
+      <div class="agent-panel">
+        <div class="agent-panel-title">参与 Agent</div>
+        <div class="agent-list">
+
+          <div class="agent-item active" style="animation:fadeIn .25s ease 0s both">
+            <div class="agent-avatar" style="background:var(--primary)">
+              检
+              <span class="agent-status-dot online"></span>
+            </div>
+            <div class="agent-info">
+              <div class="agent-name">信息检索员</div>
+              <div class="agent-role">正在工作</div>
+            </div>
+          </div>
+          <div class="agent-stats" style="animation:fadeIn .25s ease .05s both">
+            <span>Token 用量 <b class="val">1,247</b></span>
+            <span>响应时间 <b class="val">12.3s</b></span>
+          </div>
+
+          <div class="agent-item" style="animation:fadeIn .25s ease .1s both">
+            <div class="agent-avatar" style="background:var(--sage)">
+              析
+              <span class="agent-status-dot waiting"></span>
+            </div>
+            <div class="agent-info">
+              <div class="agent-name">分析师</div>
+              <div class="agent-role">等待中</div>
+            </div>
+          </div>
+          <div class="agent-stats" style="animation:fadeIn .25s ease .15s both">
+            <span>Token 用量 <b class="val">0</b></span>
+            <span>响应时间 <b class="val">—</b></span>
+          </div>
+
+          <div class="agent-item" style="animation:fadeIn .25s ease .2s both">
+            <div class="agent-avatar" style="background:var(--coral)">
+              撰
+              <span class="agent-status-dot waiting"></span>
+            </div>
+            <div class="agent-info">
+              <div class="agent-name">撰写员</div>
+              <div class="agent-role">等待中</div>
+            </div>
+          </div>
+          <div class="agent-stats" style="animation:fadeIn .25s ease .25s both">
+            <span>Token 用量 <b class="val">0</b></span>
+            <span>响应时间 <b class="val">—</b></span>
+          </div>
+
+          <div class="agent-item" style="animation:fadeIn .25s ease .3s both">
+            <div class="agent-avatar" style="background:var(--lavender)">
+              审
+              <span class="agent-status-dot waiting"></span>
+            </div>
+            <div class="agent-info">
+              <div class="agent-name">审查员</div>
+              <div class="agent-role">等待中</div>
+            </div>
+          </div>
+          <div class="agent-stats" style="animation:fadeIn .25s ease .35s both">
+            <span>Token 用量 <b class="val">0</b></span>
+            <span>响应时间 <b class="val">—</b></span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Center Column: Message Stream -->
+      <div class="stream-panel">
+        <div class="stream-toolbar">
+          <button class="toolbar-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            暂停
+          </button>
+          <button class="toolbar-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            继续
+          </button>
+          <button class="toolbar-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+            重试
+          </button>
+          <button class="toolbar-btn danger">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+            终止
+          </button>
+          <div style="margin-left:auto"></div>
+          <button class="toolbar-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            导出快照
+          </button>
+        </div>
+
+        <div class="stream-task-info">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span class="stream-task-title">竞品分析：AI 编程工具对比</span>
+          <span class="badge-status badge-running">运行中</span>
+        </div>
+
+        <div class="msg-stream">
+
+          <!-- System: Task started -->
+          <div class="msg-row system" style="animation-delay:0s">
+            <div class="msg-bubble system">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              任务开始执行 · 流水线模式 · 4 个节点
+            </div>
+          </div>
+
+          <!-- Agent: 信息检索员 - Searching -->
+          <div class="msg-row" style="animation-delay:.08s">
+            <div class="msg-avatar" style="background:var(--primary)">检</div>
+            <div class="msg-content">
+              <div class="msg-sender">
+                信息检索员
+                <span class="msg-time">14:32:01</span>
+              </div>
+              <div class="msg-bubble agent">
+                正在检索 Cursor、Copilot、Windsurf 的最新产品信息，涵盖功能特性、定价策略和用户评价...
+              </div>
+            </div>
+          </div>
+
+          <!-- Agent: 信息检索员 - Results with table -->
+          <div class="msg-row" style="animation-delay:.16s">
+            <div class="msg-avatar" style="background:var(--primary)">检</div>
+            <div class="msg-content">
+              <div class="msg-sender">
+                信息检索员
+                <span class="msg-time">14:32:13</span>
+              </div>
+              <div class="msg-bubble agent">
+                <div style="margin-bottom:8px">检索完成，以下是三款产品的核心对比数据：</div>
+                <table class="data-table">
+                  <thead>
+                    <tr><th>维度</th><th>Cursor</th><th>Copilot</th><th>Windsurf</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>代码补全</td><td style="color:var(--success)">多模型支持</td><td>GPT-4 系列</td><td>自研模型</td></tr>
+                    <tr><td>上下文理解</td><td style="color:var(--success)">全项目索引</td><td>当前文件</td><td>全项目索引</td></tr>
+                    <tr><td>Agent 能力</td><td style="color:var(--success)">深度集成</td><td>基础支持</td><td>中等支持</td></tr>
+                    <tr><td>月费 (Pro)</td><td>$20</td><td>$10</td><td>$15</td></tr>
+                    <tr><td>IDE 支持</td><td>独立 IDE</td><td style="color:var(--success)">多 IDE</td><td>独立 IDE</td></tr>
+                  </tbody>
+                </table>
+                <div style="margin-top:10px;font-size:0.78rem;color:var(--text-muted)">
+                  数据来源：官方文档 + 社区评测 · 共检索 23 个数据源
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- System: Node 1 complete -->
+          <div class="msg-row system" style="animation-delay:.24s">
+            <div class="msg-bubble system">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5" style="vertical-align:-2px;margin-right:4px"><path d="M20 6L9 17l-5-5"/></svg>
+              节点1完成 · 耗时 12.3s · 1,247 tokens
+            </div>
+          </div>
+
+          <!-- Agent: 分析师 - Working with pulse -->
+          <div class="msg-row" style="animation-delay:.32s">
+            <div class="msg-avatar" style="background:var(--sage)">析</div>
+            <div class="msg-content">
+              <div class="msg-sender">
+                分析师
+                <span class="msg-time">14:32:14</span>
+              </div>
+              <div class="msg-bubble agent">
+                <div>正在分析产品差异化特征，从技术架构、用户体验、生态整合三个维度构建评估框架...</div>
+                <div class="typing-indicator">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="stream-input">
+          <input type="text" placeholder="插入指令或修改输出...">
+          <button class="send-btn" title="发送">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Column: Metrics Panel -->
+      <div class="metrics-panel">
+        <div class="metrics-panel-title">运行指标</div>
+        <div class="metric-cards">
+
+          <div class="metric-card" style="animation:fadeIn .25s ease 0s both">
+            <div class="metric-label">总耗时</div>
+            <div class="metric-value" id="elapsed-time">00:02:34</div>
+          </div>
+
+          <div class="metric-card" style="animation:fadeIn .25s ease .06s both">
+            <div class="metric-label">Token 消耗</div>
+            <div class="metric-value">3,847</div>
+            <div class="metric-sub">/ 50,000 上限</div>
+            <div class="progress-bar"><div class="fill" style="width:7.7%;background:var(--primary)"></div></div>
+          </div>
+
+          <div class="metric-card" style="animation:fadeIn .25s ease .12s both">
+            <div class="metric-label">预估费用</div>
+            <div class="metric-value">¥0.42</div>
+          </div>
+
+          <div class="metric-card" style="animation:fadeIn .25s ease .18s both">
+            <div class="metric-label">节点进度</div>
+            <div class="metric-value">1<span style="font-size:0.8rem;font-weight:400;color:var(--text-muted)"> / 4 完成</span></div>
+          </div>
+
+        </div>
+
+        <div class="node-list">
+          <div class="node-list-title">节点状态</div>
+
+          <div class="node-item done">
+            <span class="node-dot done"></span>
+            <span class="node-label">信息检索</span>
+            <span class="node-status">完成</span>
+          </div>
+          <div class="node-connector"></div>
+          <div class="node-item active">
+            <span class="node-dot active"></span>
+            <span class="node-label">数据分析</span>
+            <span class="node-status">进行中</span>
+          </div>
+          <div class="node-connector"></div>
+          <div class="node-item">
+            <span class="node-dot pending"></span>
+            <span class="node-label">报告撰写</span>
+            <span class="node-status">等待</span>
+          </div>
+          <div class="node-connector"></div>
+          <div class="node-item">
+            <span class="node-dot pending"></span>
+            <span class="node-label">质量验收</span>
+            <span class="node-status">等待</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="common.js"></script>
+  <script>
+    initLayout('console', '执行控制台');
+
+    /* Override content area padding for the three-column layout to fill full height */
+    const mainContent = document.getElementById('main-content');
+    if (mainContent) {
+      mainContent.style.padding = '0';
+      mainContent.style.overflow = 'hidden';
+    }
+
+    /* Agent item click highlight */
+    document.querySelectorAll('.agent-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.agent-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+      });
+    });
+
+    /* Toolbar button click feedback */
+    document.querySelectorAll('.toolbar-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.style.transform = 'scale(0.96)';
+        setTimeout(() => btn.style.transform = '', 150);
+      });
+    });
+
+    /* Simulated elapsed time ticker */
+    (function() {
+      const el = document.getElementById('elapsed-time');
+      if (!el) return;
+      let secs = 154;
+      setInterval(() => {
+        secs++;
+        const m = String(Math.floor(secs / 60)).padStart(2, '0');
+        const s = String(secs % 60).padStart(2, '0');
+        el.textContent = '00:' + m + ':' + s;
+      }, 1000);
+    })();
+  </script>
+</body>
+</html>

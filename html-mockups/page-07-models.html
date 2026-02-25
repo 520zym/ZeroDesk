@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="models">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroDesk — 模型与路由</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .models-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+
+    /* Provider Cards */
+    .provider-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+    .provider-card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 20px; cursor: pointer; transition: all var(--transition); display: flex; flex-direction: column; gap: 12px; }
+    .provider-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .provider-head { display: flex; align-items: center; gap: 10px; }
+    .provider-icon { width: 40px; height: 40px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.82rem; font-weight: 700; color: #fff; }
+    .provider-name { font-size: 0.95rem; font-weight: 700; }
+    .provider-status { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.green { background: var(--success); }
+    .status-dot.orange { background: var(--warning); }
+    .status-dot.gray { background: var(--text-muted); }
+    .provider-meta { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--text-secondary); }
+    .provider-meta span { display: flex; align-items: center; gap: 6px; }
+    .provider-actions { display: flex; gap: 6px; margin-top: auto; }
+    .provider-add { border-style: dashed; align-items: center; justify-content: center; min-height: 180px; color: var(--text-muted); }
+    .provider-add:hover { color: var(--primary); border-color: var(--primary); }
+    .provider-add-inner { text-align: center; }
+
+    /* Model Pool Table */
+    .table-card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 28px; }
+    .table-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .table-card-head h3 { font-size: 1rem; font-weight: 700; }
+    .star-rating { color: var(--warning); letter-spacing: 1px; white-space: nowrap; }
+    .speed-tag { display: inline-flex; padding: 2px 10px; border-radius: var(--radius-full); font-size: 0.72rem; font-weight: 500; }
+    .speed-medium { background: var(--info-light); color: var(--primary-active); }
+    .speed-fast { background: var(--sage-light); color: #5a7a6b; }
+    .speed-ultra { background: var(--lavender-light); color: #6f5f80; }
+    .status-available { background: var(--success-light); color: var(--success); }
+    .status-offline { background: var(--bg); color: var(--text-muted); }
+
+    /* Fallback & Resilience */
+    .routing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+    .routing-card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 20px; }
+    .routing-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+    /* Fallback Chain */
+    .fallback-chain { display: flex; align-items: center; gap: 0; justify-content: center; padding: 20px 0; flex-wrap: wrap; }
+    .fallback-node { background: var(--primary-light); border: 1px solid var(--border-light); border-radius: var(--radius); padding: 12px 18px; text-align: center; transition: all var(--transition); cursor: pointer; min-width: 120px; }
+    .fallback-node:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+    .fallback-node-name { font-size: 0.85rem; font-weight: 600; color: var(--text); }
+    .fallback-node-role { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+    .fallback-arrow { display: flex; align-items: center; padding: 0 6px; color: var(--text-muted); flex-shrink: 0; }
+    .fallback-labels { display: flex; justify-content: center; gap: 0; margin-top: 10px; font-size: 0.72rem; color: var(--text-muted); text-align: center; }
+    .fallback-labels span { flex: 1; min-width: 120px; padding: 0 6px; }
+
+    /* Resilience Settings */
+    .resilience-grid-compact { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .resilience-field label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+
+    @media (max-width: 1024px) {
+      .provider-grid { grid-template-columns: repeat(2, 1fr); }
+      .routing-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .provider-grid { grid-template-columns: 1fr; }
+      .resilience-grid-compact { grid-template-columns: 1fr; }
+    }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.15); z-index: 100; display: none; opacity: 0; transition: opacity 0.25s ease; }
+    .modal-overlay.open { display: block; opacity: 1; }
+    .modal-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.96); max-width: 92vw; max-height: 88vh; overflow-y: auto; background: var(--surface); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); z-index: 101; display: none; opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; }
+    .modal-panel.open { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    .modal-header { padding: 28px 32px 0; display: flex; align-items: center; justify-content: space-between; }
+    .modal-header h2 { font-size: 1.15rem; font-weight: 700; }
+    .modal-body { padding: 24px 32px 32px; }
+    .form-section { margin-bottom: 18px; }
+    .form-section-label { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border-light); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .provider-preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+    .provider-preset { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1.5px solid var(--border-light); border-radius: var(--radius); cursor: pointer; transition: all var(--transition); }
+    .provider-preset:hover { border-color: var(--primary); }
+    .provider-preset.selected { border-color: var(--primary); background: var(--primary-light); }
+    .provider-preset .preset-icon { width: 28px; height: 28px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; color: #fff; flex-shrink: 0; }
+    .provider-preset .preset-name { font-size: 0.85rem; font-weight: 600; }
+    .test-result { display: none; margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); font-size: 0.82rem; }
+    .test-result.show { display: flex; align-items: center; gap: 8px; }
+    .test-result.success { background: var(--success-light); color: var(--success); }
+  </style>
+</head>
+<body>
+  <div id="page-content">
+    <div class="models-header">
+      <div>
+        <h2 style="font-size:1.3rem;font-weight:700">模型与路由</h2>
+        <p class="text-sm text-secondary" style="margin-top:2px">管理模型供应商、容灾降级与容错机制</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+          刷新状态
+        </button>
+        <button class="btn btn-primary" id="btn-add-provider">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          添加供应商
+        </button>
+      </div>
+    </div>
+
+    <!-- Section 1: Provider Cards -->
+    <div class="section-title">供应商</div>
+    <div class="provider-grid">
+      <div class="provider-card" style="animation:fadeIn .3s ease 0s both">
+        <div class="provider-head">
+          <div class="provider-icon" style="background:#10a37f">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          </div>
+          <div>
+            <div class="provider-name">OpenAI</div>
+            <div class="provider-status">
+              <span class="status-dot green"></span>
+              <span style="color:var(--success)">连接正常</span>
+            </div>
+          </div>
+        </div>
+        <div class="provider-meta">
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            4 个模型可用
+          </span>
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            平均延迟 128ms
+          </span>
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/></svg>
+            余额充足
+          </span>
+        </div>
+        <div class="provider-actions">
+          <button class="btn btn-secondary btn-sm">编辑</button>
+          <button class="btn btn-ghost btn-sm">测试</button>
+        </div>
+      </div>
+
+      <div class="provider-card" style="animation:fadeIn .3s ease .06s both">
+        <div class="provider-head">
+          <div class="provider-icon" style="background:var(--coral)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M12 2a10 10 0 00-6.88 17.23L12 22l6.88-2.77A10 10 0 0012 2z"/></svg>
+          </div>
+          <div>
+            <div class="provider-name">Anthropic</div>
+            <div class="provider-status">
+              <span class="status-dot green"></span>
+              <span style="color:var(--success)">连接正常</span>
+            </div>
+          </div>
+        </div>
+        <div class="provider-meta">
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            2 个模型可用
+          </span>
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            平均延迟 95ms
+          </span>
+        </div>
+        <div class="provider-actions">
+          <button class="btn btn-secondary btn-sm">编辑</button>
+          <button class="btn btn-ghost btn-sm">测试</button>
+        </div>
+      </div>
+
+      <div class="provider-card" style="animation:fadeIn .3s ease .12s both">
+        <div class="provider-head">
+          <div class="provider-icon" style="background:var(--text-muted)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <div>
+            <div class="provider-name">Ollama (本地)</div>
+            <div class="provider-status">
+              <span class="status-dot orange"></span>
+              <span style="color:var(--warning)">未连接</span>
+            </div>
+          </div>
+        </div>
+        <div class="provider-meta">
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            0 个模型可用
+          </span>
+          <span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            平均延迟 N/A
+          </span>
+        </div>
+        <div class="provider-actions">
+          <button class="btn btn-secondary btn-sm">编辑</button>
+          <button class="btn btn-ghost btn-sm" disabled style="opacity:0.4">测试</button>
+        </div>
+      </div>
+
+      <div class="provider-card provider-add" id="card-add-provider" style="animation:fadeIn .3s ease .18s both">
+        <div class="provider-add-inner">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>
+          <div style="margin-top:8px;font-size:0.88rem">添加供应商</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: Model Pool Table -->
+    <div class="table-card" style="animation:fadeIn .3s ease .1s both">
+      <div class="table-card-head">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          模型池
+        </h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            筛选
+          </button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>模型名称</th>
+              <th>Provider</th>
+              <th>质量等级</th>
+              <th>速度</th>
+              <th>价格 ($/1M tokens)</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight:600">GPT-4o</td>
+              <td>
+                <span style="display:inline-flex;align-items:center;gap:6px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:#10a37f;display:inline-block"></span>
+                  OpenAI
+                </span>
+              </td>
+              <td><span class="star-rating">★★★★★</span></td>
+              <td><span class="speed-tag speed-medium">中速</span></td>
+              <td style="font-family:var(--font-mono);font-size:0.82rem">$5.00</td>
+              <td><span class="badge-status status-available">可用</span></td>
+              <td><button class="btn btn-ghost btn-sm">配置</button></td>
+            </tr>
+            <tr>
+              <td style="font-weight:600">GPT-4o-mini</td>
+              <td>
+                <span style="display:inline-flex;align-items:center;gap:6px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:#10a37f;display:inline-block"></span>
+                  OpenAI
+                </span>
+              </td>
+              <td><span class="star-rating">★★★</span></td>
+              <td><span class="speed-tag speed-fast">快速</span></td>
+              <td style="font-family:var(--font-mono);font-size:0.82rem">$0.15</td>
+              <td><span class="badge-status status-available">可用</span></td>
+              <td><button class="btn btn-ghost btn-sm">配置</button></td>
+            </tr>
+            <tr>
+              <td style="font-weight:600">Claude 3.5 Sonnet</td>
+              <td>
+                <span style="display:inline-flex;align-items:center;gap:6px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:var(--coral);display:inline-block"></span>
+                  Anthropic
+                </span>
+              </td>
+              <td><span class="star-rating">★★★★★</span></td>
+              <td><span class="speed-tag speed-medium">中速</span></td>
+              <td style="font-family:var(--font-mono);font-size:0.82rem">$3.00</td>
+              <td><span class="badge-status status-available">可用</span></td>
+              <td><button class="btn btn-ghost btn-sm">配置</button></td>
+            </tr>
+            <tr>
+              <td style="font-weight:600">Claude 3.5 Haiku</td>
+              <td>
+                <span style="display:inline-flex;align-items:center;gap:6px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:var(--coral);display:inline-block"></span>
+                  Anthropic
+                </span>
+              </td>
+              <td><span class="star-rating">★★★</span></td>
+              <td><span class="speed-tag speed-ultra">极快</span></td>
+              <td style="font-family:var(--font-mono);font-size:0.82rem">$0.25</td>
+              <td><span class="badge-status status-available">可用</span></td>
+              <td><button class="btn btn-ghost btn-sm">配置</button></td>
+            </tr>
+            <tr>
+              <td style="font-weight:600">Qwen-Turbo</td>
+              <td>
+                <span style="display:inline-flex;align-items:center;gap:6px">
+                  <span style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);display:inline-block"></span>
+                  Ollama
+                </span>
+              </td>
+              <td><span class="star-rating">★★★</span></td>
+              <td><span class="speed-tag speed-fast">快速</span></td>
+              <td style="font-family:var(--font-mono);font-size:0.82rem;color:var(--success)">免费</td>
+              <td><span class="badge-status status-offline">离线</span></td>
+              <td><button class="btn btn-ghost btn-sm">配置</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Section 3: Fallback & Resilience -->
+    <div class="routing-grid">
+      <div class="routing-card" style="animation:fadeIn .3s ease .15s both">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Fallback 链
+        </h3>
+        <p class="text-sm text-secondary" style="margin:-8px 0 12px">当首选模型不可用时，系统自动按此链路切换备用模型</p>
+        <div class="fallback-chain">
+          <div class="fallback-node" style="border-color:var(--primary);background:var(--primary-light)">
+            <div class="fallback-node-name">GPT-4o</div>
+            <div class="fallback-node-role">首选</div>
+          </div>
+          <div class="fallback-arrow">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7l7 7-7 7"/></svg>
+          </div>
+          <div class="fallback-node" style="border-color:var(--sage);background:var(--sage-light)">
+            <div class="fallback-node-name">Claude 3.5 Sonnet</div>
+            <div class="fallback-node-role">同级备用</div>
+          </div>
+          <div class="fallback-arrow">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7l7 7-7 7"/></svg>
+          </div>
+          <div class="fallback-node" style="border-color:var(--sand);background:var(--sand-light)">
+            <div class="fallback-node-name">GPT-4o-mini</div>
+            <div class="fallback-node-role">降级备用</div>
+          </div>
+        </div>
+        <div class="fallback-labels">
+          <span>首选</span>
+          <span>→ 同级备用</span>
+          <span>→ 降级备用</span>
+        </div>
+      </div>
+
+      <div class="routing-card" style="animation:fadeIn .3s ease .2s both">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+          容错设置
+        </h3>
+        <div class="resilience-grid-compact">
+          <div class="resilience-field">
+            <label>重试次数</label>
+            <input class="input" type="number" value="3" min="0" max="10" style="width:100%">
+          </div>
+          <div class="resilience-field">
+            <label>退避策略</label>
+            <select class="select" style="width:100%">
+              <option selected>指数退避</option>
+              <option>线性退避</option>
+              <option>固定间隔</option>
+            </select>
+          </div>
+          <div class="resilience-field">
+            <label>Token 预算上限</label>
+            <input class="input" type="text" value="100,000" style="width:100%">
+          </div>
+          <div class="resilience-field">
+            <label>超预算处理</label>
+            <select class="select" style="width:100%">
+              <option selected>降级 + 人工确认</option>
+              <option>直接拒绝</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="provider-overlay"></div>
+    <div class="modal-panel" id="modal-provider" style="width:520px">
+      <div class="modal-header">
+        <h2>添加供应商</h2>
+        <button class="icon-btn" id="provider-close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-section">
+          <div class="form-section-label">快速选择</div>
+          <div class="provider-preset-grid">
+            <div class="provider-preset selected" onclick="selectPreset(this,'OpenAI','https://api.openai.com/v1')"><div class="preset-icon" style="background:#10a37f">O</div><div class="preset-name">OpenAI</div></div>
+            <div class="provider-preset" onclick="selectPreset(this,'Anthropic','https://api.anthropic.com')"><div class="preset-icon" style="background:var(--coral)">A</div><div class="preset-name">Anthropic</div></div>
+            <div class="provider-preset" onclick="selectPreset(this,'Google','https://generativelanguage.googleapis.com')"><div class="preset-icon" style="background:var(--primary)">G</div><div class="preset-name">Google</div></div>
+            <div class="provider-preset" onclick="selectPreset(this,'通义千问','https://dashscope.aliyuncs.com')"><div class="preset-icon" style="background:var(--lavender)">通</div><div class="preset-name">通义千问</div></div>
+            <div class="provider-preset" onclick="selectPreset(this,'Ollama','http://localhost:11434')"><div class="preset-icon" style="background:var(--text-muted)">本</div><div class="preset-name">Ollama (本地)</div></div>
+            <div class="provider-preset" onclick="selectPreset(this,'自定义','')"><div class="preset-icon" style="background:var(--sand)">+</div><div class="preset-name">自定义</div></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="form-section-label">供应商名称</div>
+          <input class="input w-full" id="prov-name" value="OpenAI" />
+        </div>
+        <div class="form-section">
+          <div class="form-section-label">Base URL</div>
+          <input class="input w-full" id="prov-url" value="https://api.openai.com/v1" placeholder="https://api.example.com/v1" />
+        </div>
+        <div class="form-section">
+          <div class="form-section-label">API Key</div>
+          <input class="input w-full" type="password" id="prov-key" placeholder="sk-..." />
+        </div>
+        <div class="form-section" style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-secondary btn-sm" id="btn-test-conn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            测试连接
+          </button>
+          <div class="test-result" id="test-result">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+            <span>连接成功，检测到 4 个可用模型</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeProviderModal()">取消</button>
+          <button class="btn btn-primary" id="btn-save-provider">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="common.js"></script>
+  <script>
+    initLayout('models', '模型与路由');
+
+    // Provider Modal
+    const provOverlay = document.getElementById('provider-overlay');
+    const provModal = document.getElementById('modal-provider');
+    function openProviderModal() { provOverlay.classList.add('open'); provModal.classList.add('open'); }
+    function closeProviderModal() { provOverlay.classList.remove('open'); provModal.classList.remove('open'); }
+    document.getElementById('btn-add-provider').addEventListener('click', openProviderModal);
+    document.getElementById('card-add-provider').addEventListener('click', openProviderModal);
+    document.getElementById('provider-close').addEventListener('click', closeProviderModal);
+    provOverlay.addEventListener('click', closeProviderModal);
+
+    function selectPreset(el, name, url) {
+      document.querySelectorAll('.provider-preset').forEach(p => p.classList.remove('selected'));
+      el.classList.add('selected');
+      document.getElementById('prov-name').value = name;
+      document.getElementById('prov-url').value = url;
+      document.getElementById('test-result').classList.remove('show');
+    }
+
+    document.getElementById('btn-test-conn').addEventListener('click', () => {
+      const btn = document.getElementById('btn-test-conn');
+      btn.disabled = true; btn.innerHTML = '<span class="animate-pulse">测试中...</span>';
+      setTimeout(() => {
+        document.getElementById('test-result').classList.add('show','success');
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> 测试连接';
+      }, 1000);
+    });
+
+    document.getElementById('btn-save-provider').addEventListener('click', () => {
+      const btn = document.getElementById('btn-save-provider');
+      btn.disabled = true; btn.innerHTML = '<span class="animate-pulse">保存中...</span>';
+      setTimeout(() => { closeProviderModal(); btn.disabled = false; btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> 保存'; }, 800);
+    });
+  </script>
+</body>
+</html>

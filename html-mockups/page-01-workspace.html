@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroDesk — 选择工作区</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    body { overflow: auto; }
+    .ws-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 40px 20px; }
+    .ws-wrap { max-width: 680px; width: 100%; }
+    .ws-brand { text-align: center; margin-bottom: 48px; }
+    .ws-logo { width: 64px; height: 64px; border-radius: 18px; background: linear-gradient(135deg, var(--primary), var(--sage)); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(123,158,170,0.25); }
+    .ws-brand h1 { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; color: var(--text); }
+    .ws-brand p { color: var(--text-secondary); font-size: 1rem; margin-top: 6px; }
+    .ws-section-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+    .ws-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 32px; }
+    .ws-card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 18px 22px; display: flex; align-items: center; gap: 16px; cursor: pointer; transition: all var(--transition); text-decoration: none; color: var(--text); }
+    .ws-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+    .ws-card-icon { width: 44px; height: 44px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .ws-card-info { flex: 1; min-width: 0; }
+    .ws-card-info h3 { font-size: 1rem; font-weight: 600; margin-bottom: 2px; }
+    .ws-card-info p { font-size: 0.82rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ws-card-meta { text-align: right; flex-shrink: 0; }
+    .ws-card-meta .time { font-size: 0.75rem; color: var(--text-muted); }
+    .ws-card-meta .status { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; margin-top: 4px; }
+    .ws-card-meta .dot { width: 7px; height: 7px; border-radius: 50%; }
+    .ws-card-meta .dot-ok { background: var(--success); }
+    .ws-card-meta .dot-warn { background: var(--warning); }
+    .ws-actions { display: flex; gap: 10px; margin-bottom: 40px; }
+    .ws-actions .btn { flex: 1; justify-content: center; padding: 14px; font-size: 0.92rem; border-radius: var(--radius-lg); }
+    .ws-health { background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--border-light); padding: 20px 24px; }
+    .ws-health-title { font-size: 0.88rem; font-weight: 600; margin-bottom: 14px; }
+    .ws-health-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
+    .ws-health-row:not(:last-child) { border-bottom: 1px solid var(--border-light); }
+    .ws-health-row .label { font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+    .ws-health-row .val { font-size: 0.82rem; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+    .ws-health-row .val.ok { color: var(--success); }
+    .ws-health-row .val.warn { color: var(--warning); }
+    .ws-health-row .val.err { color: var(--danger); }
+    .ws-footer { text-align: center; margin-top: 40px; color: var(--text-muted); font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="ws-page">
+    <div class="ws-wrap">
+      <div class="ws-brand">
+        <div class="ws-logo">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h1>ZeroDesk</h1>
+        <p>Multi-Agent 团队工作台 — 选择一个工作区开始</p>
+      </div>
+
+      <div class="ws-section-label">最近工作区</div>
+      <div class="ws-list">
+        <a class="ws-card" href="page-02-tasks.html">
+          <div class="ws-card-icon" style="background: var(--primary-light);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          </div>
+          <div class="ws-card-info">
+            <h3>竞品分析项目</h3>
+            <p>C:\Projects\CompetitorAnalysis</p>
+          </div>
+          <div class="ws-card-meta">
+            <div class="time">2 小时前</div>
+            <div class="status"><span class="dot dot-ok"></span>正常</div>
+          </div>
+        </a>
+        <a class="ws-card" href="page-02-tasks.html">
+          <div class="ws-card-icon" style="background: var(--sage-light);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          </div>
+          <div class="ws-card-info">
+            <h3>技术调研 — LLM Router</h3>
+            <p>C:\Projects\LLMRouter</p>
+          </div>
+          <div class="ws-card-meta">
+            <div class="time">昨天</div>
+            <div class="status"><span class="dot dot-ok"></span>正常</div>
+          </div>
+        </a>
+        <a class="ws-card" href="page-02-tasks.html">
+          <div class="ws-card-icon" style="background: var(--coral-light);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          </div>
+          <div class="ws-card-info">
+            <h3>运营周报自动化</h3>
+            <p>C:\Projects\WeeklyReport</p>
+          </div>
+          <div class="ws-card-meta">
+            <div class="time">3 天前</div>
+            <div class="status"><span class="dot dot-warn"></span>模型离线</div>
+          </div>
+        </a>
+      </div>
+
+      <div class="ws-actions">
+        <button class="btn btn-primary btn-lg" onclick="location.href='page-02-tasks.html'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          创建新工作区
+        </button>
+        <button class="btn btn-secondary btn-lg">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
+          导入工作区
+        </button>
+      </div>
+
+      <div class="ws-health">
+        <div class="ws-health-title">环境自检</div>
+        <div class="ws-health-row">
+          <span class="label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="M7 9l3 3-3 3m5 0h4"/></svg>
+            本地数据库
+          </span>
+          <span class="val ok">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            已连接
+          </span>
+        </div>
+        <div class="ws-health-row">
+          <span class="label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            OpenAI API
+          </span>
+          <span class="val ok">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            可用 · 延迟 128ms
+          </span>
+        </div>
+        <div class="ws-health-row">
+          <span class="label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+            Ollama 本地
+          </span>
+          <span class="val warn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            未启动
+          </span>
+        </div>
+        <div class="ws-health-row">
+          <span class="label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            向量检索引擎
+          </span>
+          <span class="val ok">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+            就绪
+          </span>
+        </div>
+      </div>
+
+      <div class="ws-footer">ZeroDesk v0.1.0 · 本地优先 · 数据不离开你的电脑</div>
+    </div>
+  </div>
+</body>
+</html>

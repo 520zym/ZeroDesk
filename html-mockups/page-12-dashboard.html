@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page="dashboard">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroDesk — 数据看板与系统设置</title>
+  <link rel="stylesheet" href="common.css">
+  <style>
+    .page-tabs { margin-bottom: 24px; }
+
+    /* KPI cards */
+    .kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 28px; }
+    .kpi-row .stat-card { display: flex; flex-direction: column; gap: 4px; }
+    .stat-change-up { color: var(--success); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+    .stat-change-down { color: var(--success); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+    .stat-change-down.cost-up { color: var(--danger); }
+
+    /* Charts grid */
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 20px; }
+    .chart-card h3 { font-size: 0.92rem; font-weight: 700; margin-bottom: 18px; color: var(--text); }
+    .chart-card-full { grid-column: 1 / -1; }
+
+    /* Bar chart (horizontal) */
+    .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; }
+    .bar-label { width: 36px; font-size: 0.78rem; color: var(--text-secondary); text-align: right; flex-shrink: 0; }
+    .bar-track { flex: 1; height: 26px; background: var(--bg); border-radius: var(--radius-sm); overflow: hidden; position: relative; }
+    .bar-fill { height: 100%; border-radius: var(--radius-sm); background: var(--primary); transition: width 0.8s ease; }
+    .bar-value { width: 60px; font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-secondary); text-align: right; flex-shrink: 0; }
+
+    /* Agent ranking bars */
+    .rank-list { display: flex; flex-direction: column; gap: 12px; }
+    .rank-item { display: flex; align-items: center; gap: 12px; }
+    .rank-name { width: 80px; font-size: 0.82rem; color: var(--text); flex-shrink: 0; text-align: right; }
+    .rank-bar-track { flex: 1; height: 22px; background: var(--bg); border-radius: var(--radius-sm); overflow: hidden; }
+    .rank-bar-fill { height: 100%; border-radius: var(--radius-sm); transition: width 0.8s ease; }
+    .rank-value { width: 90px; font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-secondary); flex-shrink: 0; }
+
+    /* Donut chart */
+    .donut-wrap { display: flex; align-items: center; gap: 32px; justify-content: center; padding: 8px 0; }
+    .donut { width: 140px; height: 140px; border-radius: 50%; position: relative; flex-shrink: 0; }
+    .donut-hole { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 80px; height: 80px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; flex-direction: column; }
+    .donut-hole .donut-total { font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono); color: var(--text); }
+    .donut-hole .donut-sub { font-size: 0.68rem; color: var(--text-muted); }
+    .legend { display: flex; flex-direction: column; gap: 10px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--text-secondary); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .legend-pct { font-family: var(--font-mono); font-weight: 600; color: var(--text); margin-left: auto; min-width: 36px; text-align: right; }
+
+    /* Settings sections */
+    .settings-section { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 16px; }
+    .settings-section h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+    .settings-section h3 svg { flex-shrink: 0; }
+
+    .key-actions { display: flex; gap: 6px; }
+
+    /* Whitelist */
+    .wl-group { margin-bottom: 16px; }
+    .wl-group:last-child { margin-bottom: 0; }
+    .wl-label { font-size: 0.82rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+    .wl-list { display: flex; flex-direction: column; gap: 6px; }
+    .wl-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--bg); border-radius: var(--radius); font-size: 0.82rem; font-family: var(--font-mono); color: var(--text-secondary); }
+    .wl-remove { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 2px; border-radius: var(--radius-xs); transition: all var(--transition); display: flex; }
+    .wl-remove:hover { color: var(--danger); background: var(--danger-light); }
+
+    /* Export section */
+    .export-row { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 0.78rem; color: var(--text-secondary); font-weight: 500; }
+    .checkbox-group { display: flex; align-items: center; gap: 14px; padding-top: 4px; }
+    .checkbox-label { display: flex; align-items: center; gap: 5px; font-size: 0.82rem; color: var(--text-secondary); cursor: pointer; }
+    .checkbox-label input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+
+    /* App settings */
+    .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border-light); }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-info { display: flex; flex-direction: column; gap: 2px; }
+    .setting-name { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+    .setting-desc { font-size: 0.75rem; color: var(--text-muted); }
+    .setting-control { display: flex; align-items: center; gap: 8px; }
+
+    .theme-switch { display: flex; background: var(--bg); border-radius: var(--radius); padding: 3px; gap: 2px; }
+    .theme-opt { padding: 5px 14px; border-radius: var(--radius-sm); font-size: 0.82rem; border: none; background: transparent; cursor: pointer; font-family: var(--font); color: var(--text-secondary); transition: all var(--transition); }
+    .theme-opt.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); font-weight: 600; }
+
+    .browse-input { display: flex; gap: 6px; }
+    .browse-input .input { width: 240px; }
+
+    @media (max-width: 768px) {
+      .kpi-row { grid-template-columns: repeat(2,1fr); }
+      .charts-grid { grid-template-columns: 1fr; }
+      .donut-wrap { flex-direction: column; }
+      .export-row { flex-direction: column; align-items: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <div id="page-content">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="font-size:1.3rem;font-weight:700">数据看板与系统设置</h2>
+        <p class="text-sm text-secondary" style="margin-top:2px">查看运行数据，管理系统配置</p>
+      </div>
+      <button class="btn btn-secondary" id="btn-export-all">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
+        导出报告
+      </button>
+    </div>
+
+    <div class="page-tabs">
+      <div class="tabs">
+        <button class="tab active" data-tab="analytics">数据看板</button>
+        <button class="tab" data-tab="settings">系统设置</button>
+      </div>
+    </div>
+
+    <!-- Tab 1: 数据看板 -->
+    <div id="tab-analytics" class="tab-panel">
+      <div class="kpi-row">
+        <div class="stat-card" style="animation:fadeIn .3s ease 0s both">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <div style="width:38px;height:38px;border-radius:var(--radius);background:var(--primary-light);display:flex;align-items:center;justify-content:center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" style="font-size:1.5rem">22</div>
+          <div class="stat-label">总完成任务</div>
+          <div class="stat-change-up">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5m-7 7l7-7 7 7"/></svg>
+            12% 较上周
+          </div>
+        </div>
+        <div class="stat-card" style="animation:fadeIn .3s ease .06s both">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <div style="width:38px;height:38px;border-radius:var(--radius);background:var(--sage-light);display:flex;align-items:center;justify-content:center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" style="font-size:1.5rem">186,420</div>
+          <div class="stat-label">总 Token 消耗</div>
+          <div class="stat-change-down">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7l7 7 7-7"/></svg>
+            8% 较上周
+          </div>
+        </div>
+        <div class="stat-card" style="animation:fadeIn .3s ease .12s both">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <div style="width:38px;height:38px;border-radius:var(--radius);background:var(--coral-light);display:flex;align-items:center;justify-content:center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" style="font-size:1.5rem">¥18.64</div>
+          <div class="stat-label">预估总费用</div>
+          <div class="stat-change-down">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14m-7-7l7 7 7-7"/></svg>
+            5%
+          </div>
+        </div>
+        <div class="stat-card" style="animation:fadeIn .3s ease .18s both">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <div style="width:38px;height:38px;border-radius:var(--radius);background:var(--lavender-light);display:flex;align-items:center;justify-content:center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--lavender)" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+            </div>
+          </div>
+          <div class="stat-value" style="font-size:1.5rem">82%</div>
+          <div class="stat-label">平均成功率</div>
+          <div class="stat-change-up">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5m-7 7l7-7 7 7"/></svg>
+            3%
+          </div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <!-- Chart 1: Token 消耗趋势 -->
+        <div class="chart-card" style="animation:fadeIn .3s ease .2s both">
+          <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+            Token 消耗趋势
+          </h3>
+          <div class="bar-chart" id="token-chart">
+            <div class="bar-row"><span class="bar-label">Mon</span><div class="bar-track"><div class="bar-fill" data-width="56%"></div></div><span class="bar-value">28,000</span></div>
+            <div class="bar-row"><span class="bar-label">Tue</span><div class="bar-track"><div class="bar-fill" data-width="70%"></div></div><span class="bar-value">35,000</span></div>
+            <div class="bar-row"><span class="bar-label">Wed</span><div class="bar-track"><div class="bar-fill" data-width="44%"></div></div><span class="bar-value">22,000</span></div>
+            <div class="bar-row"><span class="bar-label">Thu</span><div class="bar-track"><div class="bar-fill" data-width="82%" style="background:var(--primary-hover)"></div></div><span class="bar-value">41,000</span></div>
+            <div class="bar-row"><span class="bar-label">Fri</span><div class="bar-track"><div class="bar-fill" data-width="60%"></div></div><span class="bar-value">30,000</span></div>
+            <div class="bar-row"><span class="bar-label">Sat</span><div class="bar-track"><div class="bar-fill" data-width="30%"></div></div><span class="bar-value">15,000</span></div>
+            <div class="bar-row"><span class="bar-label">Sun</span><div class="bar-track"><div class="bar-fill" data-width="31%"></div></div><span class="bar-value">15,420</span></div>
+          </div>
+        </div>
+
+        <!-- Chart 2: Agent 消耗排行 -->
+        <div class="chart-card" style="animation:fadeIn .3s ease .26s both">
+          <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M5 21v-1a7 7 0 0114 0v1"/></svg>
+            Agent 消耗排行
+          </h3>
+          <div class="rank-list" id="agent-rank">
+            <div class="rank-item"><span class="rank-name">信息检索员</span><div class="rank-bar-track"><div class="rank-bar-fill" data-width="100%" style="background:var(--primary)"></div></div><span class="rank-value">52,400</span></div>
+            <div class="rank-item"><span class="rank-name">深度分析师</span><div class="rank-bar-track"><div class="rank-bar-fill" data-width="92%" style="background:var(--sage)"></div></div><span class="rank-value">48,200</span></div>
+            <div class="rank-item"><span class="rank-name">文案撰写员</span><div class="rank-bar-track"><div class="rank-bar-fill" data-width="74%" style="background:var(--coral)"></div></div><span class="rank-value">38,600</span></div>
+            <div class="rank-item"><span class="rank-name">质量审查员</span><div class="rank-bar-track"><div class="rank-bar-fill" data-width="54%" style="background:var(--lavender)"></div></div><span class="rank-value">28,100</span></div>
+            <div class="rank-item"><span class="rank-name">其他</span><div class="rank-bar-track"><div class="rank-bar-fill" data-width="36%" style="background:var(--sand)"></div></div><span class="rank-value">19,120</span></div>
+          </div>
+        </div>
+
+        <!-- Chart 3: 任务状态分布 -->
+        <div class="chart-card chart-card-full" style="animation:fadeIn .3s ease .32s both">
+          <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--lavender)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0110 10"/></svg>
+            任务状态分布
+          </h3>
+          <div class="donut-wrap">
+            <div class="donut" style="background:conic-gradient(var(--primary) 0% 68%, var(--sage) 68% 82%, var(--danger) 82% 91%, var(--sand) 91% 100%)">
+              <div class="donut-hole">
+                <span class="donut-total">22</span>
+                <span class="donut-sub">总任务</span>
+              </div>
+            </div>
+            <div class="legend">
+              <div class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>已完成<span class="legend-pct">68%</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--sage)"></span>进行中<span class="legend-pct">14%</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--danger)"></span>失败<span class="legend-pct">9%</span></div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--sand)"></span>草稿<span class="legend-pct">9%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: 系统设置 -->
+    <div id="tab-settings" class="tab-panel hidden">
+      <!-- Section 1: 密钥管理 -->
+      <div class="settings-section" style="animation:fadeIn .3s ease 0s both">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          密钥管理
+        </h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>Provider</th>
+                <th>状态</th>
+                <th>余额提示</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="font-weight:600">OpenAI Key</td>
+                <td>
+                  <span class="tag tag-primary">OpenAI</span>
+                </td>
+                <td><span class="badge-status badge-completed">有效</span></td>
+                <td style="font-family:var(--font-mono);font-size:0.82rem">$42.50 剩余</td>
+                <td>
+                  <div class="key-actions">
+                    <button class="btn btn-ghost btn-sm">编辑</button>
+                    <button class="btn btn-ghost btn-sm">测试</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">Anthropic Key</td>
+                <td>
+                  <span class="tag tag-lavender">Anthropic</span>
+                </td>
+                <td><span class="badge-status badge-completed">有效</span></td>
+                <td style="font-family:var(--font-mono);font-size:0.82rem">按量计费</td>
+                <td>
+                  <div class="key-actions">
+                    <button class="btn btn-ghost btn-sm">编辑</button>
+                    <button class="btn btn-ghost btn-sm">测试</button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">Ollama</td>
+                <td>
+                  <span class="tag">本地</span>
+                </td>
+                <td><span class="badge-status badge-draft">未配置</span></td>
+                <td style="font-size:0.82rem;color:var(--text-muted)">N/A</td>
+                <td>
+                  <div class="key-actions">
+                    <button class="btn btn-primary btn-sm">配置</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Section 2: 权限白名单 -->
+      <div class="settings-section" style="animation:fadeIn .3s ease .06s both">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          权限白名单
+        </h3>
+
+        <div class="wl-group">
+          <div class="wl-label">允许目录</div>
+          <div class="wl-list">
+            <div class="wl-item">
+              <span>~/Documents/Projects</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="wl-item">
+              <span>~/Desktop/workspace</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="wl-item">
+              <span>/tmp/zerodesk</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="wl-group">
+          <div class="wl-label">允许域名</div>
+          <div class="wl-list">
+            <div class="wl-item">
+              <span>api.openai.com</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="wl-item">
+              <span>api.anthropic.com</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="wl-item">
+              <span>huggingface.co</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="wl-group">
+          <div class="wl-label">命令白名单</div>
+          <div class="wl-list">
+            <div class="wl-item">
+              <span>git clone / git pull / git push</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="wl-item">
+              <span>npm install / npm run</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="wl-item">
+              <span>python / node</span>
+              <button class="wl-remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: 审计日志导出 -->
+      <div class="settings-section" style="animation:fadeIn .3s ease .12s both">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--coral)" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
+          审计日志导出
+        </h3>
+        <div class="export-row">
+          <div class="form-group">
+            <label>起始日期</label>
+            <input type="date" class="input" value="2026-02-18" style="width:160px">
+          </div>
+          <div class="form-group">
+            <label>截止日期</label>
+            <input type="date" class="input" value="2026-02-25" style="width:160px">
+          </div>
+          <div class="form-group">
+            <label>筛选类型</label>
+            <div class="checkbox-group">
+              <label class="checkbox-label"><input type="checkbox" checked>Task</label>
+              <label class="checkbox-label"><input type="checkbox" checked>Agent</label>
+              <label class="checkbox-label"><input type="checkbox">Team</label>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;padding-bottom:1px">
+            <button class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
+              导出为 JSON
+            </button>
+            <button class="btn btn-secondary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>
+              导出为 Markdown
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 4: 应用设置 -->
+      <div class="settings-section" style="animation:fadeIn .3s ease .18s both">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--lavender)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          应用设置
+        </h3>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">主题</span>
+            <span class="setting-desc">切换应用的外观主题</span>
+          </div>
+          <div class="setting-control">
+            <div class="theme-switch">
+              <button class="theme-opt active" data-theme="light">Light</button>
+              <button class="theme-opt" data-theme="dark">Dark</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">语言</span>
+            <span class="setting-desc">界面显示语言</span>
+          </div>
+          <div class="setting-control">
+            <select class="select" style="width:160px">
+              <option selected>简体中文</option>
+              <option>English</option>
+              <option>日本語</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">数据存储路径</span>
+            <span class="setting-desc">任务数据与日志的本地存储位置</span>
+          </div>
+          <div class="setting-control">
+            <div class="browse-input">
+              <input type="text" class="input" value="~/.zerodesk/data" style="width:220px">
+              <button class="btn btn-secondary btn-sm">浏览</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">自动保存间隔</span>
+            <span class="setting-desc">任务执行中间结果的自动保存频率</span>
+          </div>
+          <div class="setting-control">
+            <select class="select" style="width:120px">
+              <option>10 秒</option>
+              <option selected>30 秒</option>
+              <option>60 秒</option>
+              <option>120 秒</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="common.js"></script>
+  <script>
+    initLayout('dashboard', '数据看板');
+
+    /* Tab switching */
+    document.querySelectorAll('.page-tabs .tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.page-tabs .tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+        const target = document.getElementById('tab-' + tab.dataset.tab);
+        if (target) target.classList.remove('hidden');
+      });
+    });
+
+    /* Theme toggle */
+    document.querySelectorAll('.theme-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.theme-opt').forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+      });
+    });
+
+    /* Animate bar widths on load */
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        document.querySelectorAll('.bar-fill, .rank-bar-fill').forEach(bar => {
+          bar.style.width = bar.dataset.width;
+        });
+      }, 100);
+    });
+  </script>
+</body>
+</html>
