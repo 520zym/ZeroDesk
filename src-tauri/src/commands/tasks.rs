@@ -1,17 +1,18 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{ExecutionMessage, Task, TaskStats, TaskStep};
 
 #[tauri::command]
 pub async fn list_tasks(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
 ) -> Result<Vec<Task>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Task>(
         "SELECT * FROM tasks WHERE workspace_id = ?1 ORDER BY updated_at DESC",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
@@ -29,7 +30,6 @@ pub async fn get_task(pool: State<'_, SqlitePool>, id: String) -> Result<Task, S
 #[tauri::command]
 pub async fn create_task(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
     title: String,
     description: Option<String>,
     goal: Option<String>,
@@ -37,13 +37,14 @@ pub async fn create_task(
     plan_mode: Option<String>,
     timeout_minutes: Option<i64>,
 ) -> Result<Task, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO tasks (id, workspace_id, title, description, goal, cost_tier, plan_mode, timeout_minutes)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(&id)
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .bind(&title)
     .bind(&description)
     .bind(&goal)
@@ -67,13 +68,7 @@ pub async fn update_task_status(
     id: String,
     status: String,
 ) -> Result<Task, String> {
-    let completed_at = if status == "completed" {
-        Some("datetime('now')".to_string())
-    } else {
-        None
-    };
-
-    if completed_at.is_some() {
+    if status == "completed" {
         sqlx::query(
             "UPDATE tasks SET status = ?1, updated_at = datetime('now'), completed_at = datetime('now') WHERE id = ?2",
         )
@@ -101,11 +96,12 @@ pub async fn update_task_status(
 #[tauri::command]
 pub async fn get_task_stats(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
 ) -> Result<TaskStats, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+
     let total: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1")
-            .bind(&workspace_id)
+            .bind(workspace_id)
             .fetch_one(pool.inner())
             .await
             .map_err(|e| e.to_string())?;
@@ -113,7 +109,7 @@ pub async fn get_task_stats(
     let running: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'running'",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -121,7 +117,7 @@ pub async fn get_task_stats(
     let completed: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'completed'",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -129,7 +125,7 @@ pub async fn get_task_stats(
     let failed: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'failed'",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -137,7 +133,7 @@ pub async fn get_task_stats(
     let draft: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'draft'",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| e.to_string())?;

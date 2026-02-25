@@ -2,7 +2,7 @@ mod commands;
 mod db;
 mod models;
 
-use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, settings, skills, tasks, teams, workspace};
+use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, settings, skills, tasks, teams};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,10 +22,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // workspace
-            workspace::list_workspaces,
-            workspace::create_workspace,
-            workspace::get_workspace,
+            // workspace (kept for internal use)
             // tasks
             tasks::list_tasks,
             tasks::get_task,
@@ -52,7 +49,14 @@ pub fn run() {
             models_cmd::list_providers,
             models_cmd::create_provider,
             models_cmd::update_provider,
+            models_cmd::delete_provider,
             models_cmd::list_models,
+            models_cmd::list_workspace_models,
+            models_cmd::toggle_provider_enabled,
+            models_cmd::toggle_model_enabled,
+            models_cmd::batch_toggle_models,
+            models_cmd::test_provider_connection,
+            models_cmd::fetch_provider_models,
             models_cmd::get_fallback_chain,
             models_cmd::get_resilience_policy,
             models_cmd::update_resilience_policy,

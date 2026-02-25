@@ -1,17 +1,18 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::Agent;
 
 #[tauri::command]
 pub async fn list_agents(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
 ) -> Result<Vec<Agent>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Agent>(
         "SELECT * FROM agents WHERE workspace_id = ?1 ORDER BY updated_at DESC",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
@@ -29,7 +30,6 @@ pub async fn get_agent(pool: State<'_, SqlitePool>, id: String) -> Result<Agent,
 #[tauri::command]
 pub async fn create_agent(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
     name: String,
     avatar_char: Option<String>,
     avatar_color: Option<String>,
@@ -41,13 +41,14 @@ pub async fn create_agent(
     skills_json: Option<String>,
     is_template: Option<bool>,
 ) -> Result<Agent, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO agents (id, workspace_id, name, avatar_char, avatar_color, role_description, system_prompt, model_id, fallback_model_id, tools_json, skills_json, is_template)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )
     .bind(&id)
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .bind(&name)
     .bind(&avatar_char)
     .bind(&avatar_color)

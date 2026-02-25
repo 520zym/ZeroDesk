@@ -1,5 +1,4 @@
-import { Link } from "react-router";
-import { Search, Pause, Bell, FolderOpen, Command } from "lucide-react";
+import { Search, Pause, Bell, Command } from "lucide-react";
 
 interface TopbarProps {
   title: string;
@@ -39,13 +38,6 @@ export function Topbar({ title }: TopbarProps) {
           <Bell size={16} />
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-coral rounded-full" />
         </button>
-        <Link
-          to="/workspace"
-          className="w-8 h-8 rounded-lg bg-transparent text-text-muted flex items-center justify-center transition-all hover:bg-bg-alt hover:text-text"
-          title="首页"
-        >
-          <FolderOpen size={16} />
-        </Link>
       </div>
     </header>
   );

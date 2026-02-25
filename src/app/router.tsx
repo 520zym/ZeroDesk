@@ -1,7 +1,6 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { AppLayout } from "@/components/layout";
 
-import WorkspacePage from "./workspace/page";
 import TasksPage from "./tasks/page";
 import PlanPage from "./plan/page";
 import ConsolePage from "./console/page";
@@ -16,10 +15,6 @@ import DashboardPage from "./dashboard/page";
 import SettingsPage from "./settings/page";
 
 export const router = createBrowserRouter([
-  {
-    path: "/workspace",
-    element: <WorkspacePage />,
-  },
   {
     path: "/",
     element: <AppLayout />,

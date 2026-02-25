@@ -2,21 +2,17 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
 import type { Task, TaskStats } from "@/types";
 
-export function useTasks(workspaceId: string | null) {
+export function useTasks() {
   return useQuery({
-    queryKey: ["tasks", workspaceId],
-    queryFn: () =>
-      tauriInvoke<Task[]>("list_tasks", { workspaceId: workspaceId! }),
-    enabled: !!workspaceId,
+    queryKey: ["tasks"],
+    queryFn: () => tauriInvoke<Task[]>("list_tasks"),
   });
 }
 
-export function useTaskStats(workspaceId: string | null) {
+export function useTaskStats() {
   return useQuery({
-    queryKey: ["task-stats", workspaceId],
-    queryFn: () =>
-      tauriInvoke<TaskStats>("get_task_stats", { workspaceId: workspaceId! }),
-    enabled: !!workspaceId,
+    queryKey: ["task-stats"],
+    queryFn: () => tauriInvoke<TaskStats>("get_task_stats"),
   });
 }
 
@@ -24,15 +20,17 @@ export function useCreateTask() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (
-      payload: Pick<Task, "workspace_id" | "title"> &
-        Partial<Pick<Task, "description" | "goal" | "cost_tier" | "plan_mode">>,
-    ) => tauriInvoke<Task>("create_task", { payload }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["tasks", variables.workspace_id] });
-      qc.invalidateQueries({
-        queryKey: ["task-stats", variables.workspace_id],
-      });
+    mutationFn: (params: {
+      title: string;
+      description?: string;
+      goal?: string;
+      costTier?: string;
+      planMode?: string;
+      timeoutMinutes?: number;
+    }) => tauriInvoke<Task>("create_task", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-stats"] });
     },
   });
 }
@@ -41,20 +39,14 @@ export function useUpdateTaskStatus() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: {
-      taskId: string;
-      status: string;
-      workspaceId: string;
-    }) =>
+    mutationFn: (params: { taskId: string; status: string }) =>
       tauriInvoke<Task>("update_task_status", {
-        taskId: params.taskId,
+        id: params.taskId,
         status: params.status,
       }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ["tasks", variables.workspaceId] });
-      qc.invalidateQueries({
-        queryKey: ["task-stats", variables.workspaceId],
-      });
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-stats"] });
     },
   });
 }

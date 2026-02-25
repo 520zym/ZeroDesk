@@ -3,8 +3,11 @@ use sqlx::SqlitePool;
 use std::path::Path;
 use std::str::FromStr;
 
+pub const DEFAULT_WORKSPACE_ID: &str = "default";
+
 const MIGRATION_SQL: &str = include_str!("migrations/001_initial.sql");
 const MIGRATION_002_SQL: &str = include_str!("migrations/002_system_settings.sql");
+const MIGRATION_003_SQL: &str = include_str!("migrations/003_provider_model_enabled.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -25,7 +28,7 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
-    for sql in [MIGRATION_SQL, MIGRATION_002_SQL] {
+    for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))
@@ -34,10 +37,25 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         for statement in stripped.split(';') {
             let trimmed = statement.trim();
             if !trimmed.is_empty() {
-                sqlx::query(trimmed).execute(&pool).await?;
+                match sqlx::query(trimmed).execute(&pool).await {
+                    Ok(_) => {}
+                    Err(e) if e.to_string().contains("duplicate column") => {
+                        tracing::debug!("Skipping already-applied migration: {}", e);
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
     }
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO workspaces (id, name, path) VALUES (?1, ?2, ?3)",
+    )
+    .bind(DEFAULT_WORKSPACE_ID)
+    .bind("默认")
+    .bind(".")
+    .execute(&pool)
+    .await?;
 
     tracing::info!("Database initialized at {}", db_path.display());
     Ok(pool)

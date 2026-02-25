@@ -2,39 +2,27 @@ import { useQuery } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
 import type { DashboardKpi, HistoryStats, Task } from "@/types";
 
-export function useDashboardKpis(workspaceId: string | null) {
+export function useDashboardKpis() {
   return useQuery({
-    queryKey: ["dashboard-kpis", workspaceId],
-    queryFn: () =>
-      tauriInvoke<DashboardKpi>("get_dashboard_kpis", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+    queryKey: ["dashboard-kpis"],
+    queryFn: () => tauriInvoke<DashboardKpi>("get_dashboard_kpis"),
   });
 }
 
-export function useHistoryStats(workspaceId: string | null) {
+export function useHistoryStats() {
   return useQuery({
-    queryKey: ["history-stats", workspaceId],
-    queryFn: () =>
-      tauriInvoke<HistoryStats[]>("get_history_stats", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+    queryKey: ["history-stats"],
+    queryFn: () => tauriInvoke<HistoryStats>("get_history_stats"),
   });
 }
 
-export function useHistoryTasks(
-  workspaceId: string | null,
-  filters?: { status?: string; search?: string },
-) {
+export function useHistoryTasks(filters?: {
+  status?: string;
+  search?: string;
+}) {
   return useQuery({
-    queryKey: ["history-tasks", workspaceId, filters],
+    queryKey: ["history-tasks", filters],
     queryFn: () =>
-      tauriInvoke<Task[]>("list_history_tasks", {
-        workspaceId: workspaceId!,
-        ...filters,
-      }),
-    enabled: !!workspaceId,
+      tauriInvoke<Task[]>("list_history_tasks", { ...filters }),
   });
 }

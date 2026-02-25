@@ -1,17 +1,18 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{Agent, Team};
 
 #[tauri::command]
 pub async fn list_teams(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
 ) -> Result<Vec<Team>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Team>(
         "SELECT * FROM teams WHERE workspace_id = ?1 ORDER BY updated_at DESC",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
@@ -20,18 +21,18 @@ pub async fn list_teams(
 #[tauri::command]
 pub async fn create_team(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
     name: String,
     description: Option<String>,
     color: Option<String>,
 ) -> Result<Team, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO teams (id, workspace_id, name, description, color)
          VALUES (?1, ?2, ?3, ?4, ?5)",
     )
     .bind(&id)
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .bind(&name)
     .bind(&description)
     .bind(&color.unwrap_or_else(|| "primary".into()))

@@ -1,19 +1,7 @@
-// ─── Workspace ───────────────────────────────────────────────
-
-export interface Workspace {
-  id: string;
-  name: string;
-  root_path: string;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 // ─── Task ────────────────────────────────────────────────────
 
 export interface Task {
   id: string;
-  workspace_id: string;
   title: string;
   description: string | null;
   goal: string | null;
@@ -52,7 +40,6 @@ export interface TaskStats {
 
 export interface Agent {
   id: string;
-  workspace_id: string;
   name: string;
   role: string;
   system_prompt: string | null;
@@ -68,7 +55,6 @@ export interface Agent {
 
 export interface Team {
   id: string;
-  workspace_id: string;
   name: string;
   description: string | null;
   strategy: string;
@@ -86,14 +72,24 @@ export interface TeamMember {
 
 // ─── Model ───────────────────────────────────────────────────
 
+export interface TestConnectionResult {
+  success: boolean;
+  latency_ms: number;
+  model_count: number;
+  error: string | null;
+}
+
 export interface ModelProvider {
   id: string;
-  workspace_id: string;
   name: string;
-  provider_type: string;
   base_url: string;
-  api_key_encrypted: string;
-  enabled: boolean;
+  api_key_encrypted: string | null;
+  icon_color: string | null;
+  status: string | null;
+  avg_latency_ms: number | null;
+  models_count: number | null;
+  balance_info: string | null;
+  enabled: number;
   created_at: string;
   updated_at: string;
 }
@@ -101,39 +97,33 @@ export interface ModelProvider {
 export interface Model {
   id: string;
   provider_id: string;
-  model_name: string;
-  display_name: string;
-  context_window: number;
-  input_cost_per_token: number;
-  output_cost_per_token: number;
-  supports_vision: boolean;
-  supports_tools: boolean;
-  enabled: boolean;
+  name: string;
+  quality_rating: number | null;
+  speed_tier: string | null;
+  price_per_million_tokens: number | null;
+  status: string | null;
+  enabled: number;
+  created_at: string;
 }
 
 export interface FallbackChainEntry {
   id: string;
-  workspace_id: string;
+  chain_order: number;
   model_id: string;
-  priority: number;
-  weight: number;
+  role: string | null;
 }
 
 export interface ResiliencePolicy {
-  id: string;
-  workspace_id: string;
-  max_retries: number;
-  retry_delay_ms: number;
-  timeout_ms: number;
-  circuit_breaker_threshold: number;
-  rate_limit_rpm: number;
+  retry_count: number | null;
+  backoff_strategy: string | null;
+  token_budget: number | null;
+  over_budget_action: string | null;
 }
 
 // ─── Skill ───────────────────────────────────────────────────
 
 export interface Skill {
   id: string;
-  workspace_id: string;
   name: string;
   description: string | null;
   skill_type: string;
@@ -147,7 +137,6 @@ export interface Skill {
 
 export interface KnowledgeItem {
   id: string;
-  workspace_id: string;
   title: string;
   content: string;
   content_type: string;
@@ -179,7 +168,6 @@ export interface PromptVersion {
 
 export interface WorkflowTemplate {
   id: string;
-  workspace_id: string;
   name: string;
   description: string | null;
   steps_json: string;

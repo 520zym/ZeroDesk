@@ -13,13 +13,10 @@ export function usePromptVersions(agentId: string | null) {
   });
 }
 
-export function useWorkflowTemplates(workspaceId: string | null) {
+export function useWorkflowTemplates() {
   return useQuery({
-    queryKey: ["workflow-templates", workspaceId],
+    queryKey: ["workflow-templates"],
     queryFn: () =>
-      tauriInvoke<WorkflowTemplate[]>("list_workflow_templates", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+      tauriInvoke<WorkflowTemplate[]>("list_workflow_templates"),
   });
 }

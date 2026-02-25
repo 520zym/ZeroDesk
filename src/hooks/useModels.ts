@@ -5,16 +5,13 @@ import type {
   Model,
   FallbackChainEntry,
   ResiliencePolicy,
+  TestConnectionResult,
 } from "@/types";
 
-export function useProviders(workspaceId: string | null) {
+export function useProviders() {
   return useQuery({
-    queryKey: ["providers", workspaceId],
-    queryFn: () =>
-      tauriInvoke<ModelProvider[]>("list_providers", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+    queryKey: ["providers"],
+    queryFn: () => tauriInvoke<ModelProvider[]>("list_providers"),
   });
 }
 
@@ -22,17 +19,103 @@ export function useCreateProvider() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: (
-      payload: Pick<
-        ModelProvider,
-        "workspace_id" | "name" | "provider_type" | "base_url"
-      > &
-        Partial<Pick<ModelProvider, "api_key_encrypted" | "enabled">>,
-    ) => tauriInvoke<ModelProvider>("create_provider", { payload }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({
-        queryKey: ["providers", variables.workspace_id],
-      });
+    mutationFn: (params: {
+      name: string;
+      baseUrl: string;
+      apiKeyEncrypted?: string;
+      iconColor?: string;
+    }) => tauriInvoke<ModelProvider>("create_provider", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
+    },
+  });
+}
+
+export function useUpdateProvider() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: {
+      id: string;
+      name?: string;
+      baseUrl?: string;
+      apiKeyEncrypted?: string;
+      iconColor?: string;
+      status?: string;
+    }) => tauriInvoke<ModelProvider>("update_provider", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+    },
+  });
+}
+
+export function useDeleteProvider() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { id: string }) =>
+      tauriInvoke<void>("delete_provider", { id: params.id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
+    },
+  });
+}
+
+export function useToggleProviderEnabled() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { id: string; enabled: boolean }) =>
+      tauriInvoke<ModelProvider>("toggle_provider_enabled", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
+    },
+  });
+}
+
+export function useTestProviderConnection() {
+  return useMutation({
+    mutationFn: (params: { providerId: string }) =>
+      tauriInvoke<TestConnectionResult>("test_provider_connection", params),
+  });
+}
+
+export function useFetchProviderModels() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { providerId: string }) =>
+      tauriInvoke<Model[]>("fetch_provider_models", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
+    },
+  });
+}
+
+export function useToggleModelEnabled() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { id: string; enabled: boolean }) =>
+      tauriInvoke<Model>("toggle_model_enabled", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
+    },
+  });
+}
+
+export function useBatchToggleModels() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { ids: string[]; enabled: boolean }) =>
+      tauriInvoke<void>("batch_toggle_models", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
     },
   });
 }
@@ -46,24 +129,39 @@ export function useModels(providerId: string | null) {
   });
 }
 
-export function useFallbackChain(workspaceId: string | null) {
+export function useWorkspaceModels() {
   return useQuery({
-    queryKey: ["fallback-chain", workspaceId],
-    queryFn: () =>
-      tauriInvoke<FallbackChainEntry[]>("get_fallback_chain", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+    queryKey: ["workspace-models"],
+    queryFn: () => tauriInvoke<Model[]>("list_workspace_models"),
   });
 }
 
-export function useResiliencePolicy(workspaceId: string | null) {
+export function useFallbackChain() {
   return useQuery({
-    queryKey: ["resilience-policy", workspaceId],
-    queryFn: () =>
-      tauriInvoke<ResiliencePolicy>("get_resilience_policy", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+    queryKey: ["fallback-chain"],
+    queryFn: () => tauriInvoke<FallbackChainEntry[]>("get_fallback_chain"),
+  });
+}
+
+export function useResiliencePolicy() {
+  return useQuery({
+    queryKey: ["resilience-policy"],
+    queryFn: () => tauriInvoke<ResiliencePolicy>("get_resilience_policy"),
+  });
+}
+
+export function useUpdateResiliencePolicy() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: {
+      retryCount?: number;
+      backoffStrategy?: string;
+      tokenBudget?: number;
+      overBudgetAction?: string;
+    }) => tauriInvoke<ResiliencePolicy>("update_resilience_policy", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resilience-policy"] });
+    },
   });
 }

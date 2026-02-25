@@ -2,14 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
 import type { KnowledgeItem, KnowledgeVersion } from "@/types";
 
-export function useKnowledgeItems(workspaceId: string | null) {
+export function useKnowledgeItems() {
   return useQuery({
-    queryKey: ["knowledge-items", workspaceId],
-    queryFn: () =>
-      tauriInvoke<KnowledgeItem[]>("list_knowledge_items", {
-        workspaceId: workspaceId!,
-      }),
-    enabled: !!workspaceId,
+    queryKey: ["knowledge-items"],
+    queryFn: () => tauriInvoke<KnowledgeItem[]>("list_knowledge_items"),
   });
 }
 

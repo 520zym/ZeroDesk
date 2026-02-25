@@ -1,17 +1,18 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::Skill;
 
 #[tauri::command]
 pub async fn list_skills(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
 ) -> Result<Vec<Skill>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Skill>(
         "SELECT * FROM skills WHERE workspace_id = ?1 ORDER BY name ASC",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
@@ -20,7 +21,6 @@ pub async fn list_skills(
 #[tauri::command]
 pub async fn create_skill(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
     name: String,
     description: Option<String>,
     icon_name: Option<String>,
@@ -30,13 +30,14 @@ pub async fn create_skill(
     permissions_json: Option<String>,
     source: Option<String>,
 ) -> Result<Skill, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO skills (id, workspace_id, name, description, icon_name, icon_bg, scope, scope_id, permissions_json, source)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )
     .bind(&id)
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .bind(&name)
     .bind(&description)
     .bind(&icon_name)

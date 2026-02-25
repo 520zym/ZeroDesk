@@ -98,6 +98,7 @@ pub struct ModelProvider {
     pub avg_latency_ms: Option<i64>,
     pub models_count: Option<i64>,
     pub balance_info: Option<String>,
+    pub enabled: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -111,6 +112,7 @@ pub struct Model {
     pub speed_tier: Option<String>,
     pub price_per_million_tokens: Option<f64>,
     pub status: Option<String>,
+    pub enabled: i64,
     pub created_at: String,
 }
 
@@ -240,6 +242,16 @@ pub struct SystemSettings {
     pub budget_notify: bool,
     pub data_path: Option<String>,
     pub updated_at: String,
+}
+
+// --- Provider API response types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestConnectionResult {
+    pub success: bool,
+    pub latency_ms: i64,
+    pub model_count: i64,
+    pub error: Option<String>,
 }
 
 // --- Aggregate / response types ---

@@ -1,17 +1,18 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{KnowledgeItem, KnowledgeVersion};
 
 #[tauri::command]
 pub async fn list_knowledge_items(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
 ) -> Result<Vec<KnowledgeItem>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, KnowledgeItem>(
         "SELECT * FROM knowledge_items WHERE workspace_id = ?1 ORDER BY updated_at DESC",
     )
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
@@ -32,7 +33,6 @@ pub async fn get_knowledge_item(
 #[tauri::command]
 pub async fn create_knowledge_item(
     pool: State<'_, SqlitePool>,
-    workspace_id: String,
     title: String,
     content: Option<String>,
     folder: Option<String>,
@@ -40,13 +40,14 @@ pub async fn create_knowledge_item(
     tags_json: Option<String>,
     visibility: Option<String>,
 ) -> Result<KnowledgeItem, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO knowledge_items (id, workspace_id, title, content, folder, content_type, tags_json, visibility)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(&id)
-    .bind(&workspace_id)
+    .bind(workspace_id)
     .bind(&title)
     .bind(&content)
     .bind(&folder.unwrap_or_else(|| "root".into()))
