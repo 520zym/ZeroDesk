@@ -1,0 +1,43 @@
+feat: 执行控制台/任务历史/任务详情页面对接实际数据
+
+后端 (Rust/Tauri):
+- 新增数据库迁移 009: tasks 表增加 team_id 字段关联团队
+- Task 模型增加 team_id, HistoryStats 增加 success_rate
+- 新增命令: create_execution_message, update_task_step_status,
+  update_task_step, delete_task_step, reorder_task_steps,
+  delete_task, update_task, list_running_tasks
+- create_task 支持传入 team_id
+- get_history_stats 补充计算真实平均耗时和成功率
+- list_history_tasks 增加 search 模糊搜索参数
+
+前端类型与 Hooks:
+- Task 类型增加 team_id, HistoryStats/DashboardKpi 对齐后端
+- 新增 hooks: useTask, useRunningTasks, useTaskSteps,
+  useExecutionMessages, useCreateExecutionMessage,
+  useCreateTaskStep, useUpdateTaskStep, useDeleteTaskStep,
+  useReorderTaskSteps, useDeleteTask
+- useDashboard 的 useHistoryTasks 支持 statusFilter/search
+
+执行控制台页面:
+- 从 mock 数据切换为通过 useTask/useTaskSteps/useExecutionMessages 获取真实数据
+- 支持路由参数 /tasks/:id/console, 无 ID 时自动选取运行中任务
+- 消息流实时轮询(2s), 区分 system/agent/human 三类消息
+- 动态计算总耗时(运行中每秒刷新)/Token消耗/预估费用/节点进度
+- 暂停/继续/终止/发送消息均绑定真实 API
+
+任务历史页面:
+- 统计卡片对接 useHistoryStats (总任务/成功率/平均耗时/总消耗)
+- 表格对接 useHistoryTasks, 团队名通过 team_id 关联显示
+- 支持时间范围/团队/搜索三维筛选, 搜索带 300ms 防抖
+- 操作按钮: 详情跳转控制台, 失败复盘面板, 重新执行
+
+任务详情(Plan)页面:
+- 从 mock 数据切换为 useTask/useTaskSteps/useAgents/useWorkspaceModels
+- 步骤支持编辑名称/Agent/输出类型, 支持添加和删除步骤
+- Agent 团队从步骤中动态提取, 展示 Prompt/模型/工具详情
+- 确认执行调用 updateTaskStatus 后跳转控制台, 无步骤时禁用
+
+任务中心页面:
+- 创建任务时传递 teamId 到后端
+- 任务卡片增加删除按钮(hover显示, 运行中任务不可删除)
+- 任务详情页顶栏增加删除任务按钮

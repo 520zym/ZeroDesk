@@ -16,6 +16,7 @@ export interface Task {
   total_tokens: number | null;
   total_cost: number | null;
   progress: number | null;
+  team_id: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -280,15 +281,16 @@ export interface DashboardKpi {
   completed_tasks: number;
   failed_tasks: number;
   total_agents: number;
-  total_cost: number;
+  total_teams: number;
   total_tokens: number;
-  avg_completion_time_ms: number;
+  total_cost: number;
 }
 
 export interface HistoryStats {
-  period: string;
-  task_count: number;
+  total: number;
+  completed: number;
+  failed: number;
   success_rate: number;
-  avg_cost: number;
-  total_tokens: number;
+  avg_duration_seconds: number;
+  total_cost: number;
 }

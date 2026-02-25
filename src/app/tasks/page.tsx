@@ -19,11 +19,12 @@ import {
   ListTodo,
   Loader2,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { StatCard, Badge, Tabs, Modal, ProgressBar, EmptyState } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { useTasks, useTaskStats, useCreateTask } from "@/hooks/useTasks";
+import { useTasks, useTaskStats, useCreateTask, useDeleteTask } from "@/hooks/useTasks";
 import { useTeams } from "@/hooks/useTeams";
 import type { Task } from "@/types";
 
@@ -119,6 +120,7 @@ export default function TasksPage() {
   const { data: stats, isLoading: statsLoading } = useTaskStats();
   const { data: teams } = useTeams();
   const createTask = useCreateTask();
+  const deleteTask = useDeleteTask();
 
   const resetModal = useCallback(() => {
     setTitle("");
@@ -152,6 +154,7 @@ export default function TasksPage() {
         qualityGate,
         retryPolicy,
         overBudgetPolicy,
+        teamId: selectedTeam ?? undefined,
       });
       setModalOpen(false);
       navigate(`/tasks/${created.id}/plan`);
@@ -304,7 +307,21 @@ export default function TasksPage() {
                     </span>
                   )}
                 </div>
-                <span className="text-[0.7rem] text-text-muted">{formatRelativeTime(task.updated_at)}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[0.7rem] text-text-muted">{formatRelativeTime(task.updated_at)}</span>
+                  {task.status !== "running" && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteTask.mutate(task.id);
+                      }}
+                      className="w-6 h-6 rounded-md flex items-center justify-center text-text-muted opacity-0 group-hover:opacity-100 hover:bg-danger-light hover:text-danger transition-all cursor-pointer"
+                      title="删除任务"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

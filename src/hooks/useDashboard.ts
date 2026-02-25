@@ -17,12 +17,11 @@ export function useHistoryStats() {
 }
 
 export function useHistoryTasks(filters?: {
-  status?: string;
+  statusFilter?: string;
   search?: string;
 }) {
   return useQuery({
     queryKey: ["history-tasks", filters],
-    queryFn: () =>
-      tauriInvoke<Task[]>("list_history_tasks", { ...filters }),
+    queryFn: () => tauriInvoke<Task[]>("list_history_tasks", { ...filters }),
   });
 }

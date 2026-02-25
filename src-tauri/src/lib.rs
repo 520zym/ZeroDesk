@@ -40,13 +40,21 @@ pub fn run() {
             // workspace (kept for internal use)
             // tasks
             tasks::list_tasks,
+            tasks::list_running_tasks,
             tasks::get_task,
             tasks::create_task,
+            tasks::update_task,
             tasks::update_task_status,
+            tasks::delete_task,
             tasks::get_task_stats,
             tasks::list_task_steps,
             tasks::create_task_step,
+            tasks::update_task_step_status,
+            tasks::update_task_step,
+            tasks::delete_task_step,
+            tasks::reorder_task_steps,
             tasks::list_execution_messages,
+            tasks::create_execution_message,
             // agents
             agents::list_agents,
             agents::get_agent,

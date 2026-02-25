@@ -27,6 +27,7 @@ pub struct Task {
     pub total_tokens: Option<i64>,
     pub total_cost: Option<f64>,
     pub progress: Option<i64>,
+    pub team_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub completed_at: Option<String>,
@@ -291,6 +292,7 @@ pub struct HistoryStats {
     pub total: i64,
     pub completed: i64,
     pub failed: i64,
+    pub success_rate: f64,
     pub avg_duration_seconds: f64,
     pub total_cost: f64,
 }

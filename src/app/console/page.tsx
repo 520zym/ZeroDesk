@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   Pause,
   Play,
@@ -13,16 +13,24 @@ import {
   CheckCircle2,
   AlertCircle,
   Bot,
+  Monitor,
+  Loader2,
+  User,
 } from "lucide-react";
-import { Avatar, Badge, ProgressBar } from "@/components/ui";
+import { Avatar, Badge, ProgressBar, EmptyState } from "@/components/ui";
+import type { BadgeVariant } from "@/components/ui";
 import { cn } from "@/lib/utils";
-
-const AGENTS = [
-  { id: "ag1", char: "检", color: "bg-primary", name: "信息检索员", role: "数据采集", status: "done" as const, tokens: 1247, responseTime: "12s" },
-  { id: "ag2", char: "析", color: "bg-sage", name: "分析师", role: "对比分析", status: "active" as const, tokens: 1832, responseTime: "18s" },
-  { id: "ag3", char: "撰", color: "bg-lavender", name: "撰写员", role: "报告生成", status: "waiting" as const, tokens: 0, responseTime: "-" },
-  { id: "ag4", char: "审", color: "bg-coral", name: "审查员", role: "质量审查", status: "waiting" as const, tokens: 0, responseTime: "-" },
-];
+import { useParams, useNavigate } from "react-router";
+import {
+  useTask,
+  useTaskSteps,
+  useExecutionMessages,
+  useCreateExecutionMessage,
+  useUpdateTaskStatus,
+  useRunningTasks,
+} from "@/hooks/useTasks";
+import { useAgents } from "@/hooks/useAgents";
+import type { Agent, TaskStep, ExecutionMessage } from "@/types";
 
 const AGENT_STATUS_STYLE = {
   done: { dot: "bg-success", ring: "ring-success/20" },
@@ -30,85 +38,239 @@ const AGENT_STATUS_STYLE = {
   waiting: { dot: "bg-border", ring: "ring-border/20" },
 };
 
-type MsgType = "system" | "agent" | "typing";
-
-interface Message {
-  id: string;
-  type: MsgType;
-  agent?: { char: string; color: string; name: string };
-  content: string;
-  time?: string;
-  table?: { headers: string[]; rows: string[][] };
-}
-
-const MOCK_MESSAGES: Message[] = [
-  { id: "m1", type: "system", content: "任务开始执行", time: "14:23:01" },
-  { id: "m2", type: "system", content: "节点 1：信息收集 开始", time: "14:23:02" },
-  {
-    id: "m3",
-    type: "agent",
-    agent: { char: "检", color: "bg-primary", name: "信息检索员" },
-    content: "正在从 Cursor 官方文档和 GitHub 仓库中提取核心功能列表...",
-    time: "14:23:05",
-  },
-  {
-    id: "m4",
-    type: "agent",
-    agent: { char: "检", color: "bg-primary", name: "信息检索员" },
-    content: "已完成三款工具的基础数据采集，共获取 47 个特征维度，正在进行数据清洗和格式化...",
-    time: "14:24:18",
-  },
-  { id: "m5", type: "system", content: "节点 1 完成 ✓ — 用时 1 分 23 秒", time: "14:24:24" },
-  { id: "m6", type: "system", content: "节点 2：多维度对比分析 开始", time: "14:24:25" },
-  {
-    id: "m7",
-    type: "agent",
-    agent: { char: "析", color: "bg-sage", name: "分析师" },
-    content: "收到数据集，开始按维度构建对比矩阵。初步分析三款工具各有优势领域：",
-    time: "14:24:30",
-    table: {
-      headers: ["维度", "Cursor", "Copilot", "Windsurf"],
-      rows: [
-        ["代码补全", "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐"],
-        ["多文件编辑", "⭐⭐⭐⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐"],
-        ["上下文理解", "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"],
-        ["定价", "$$", "$", "$$$"],
-      ],
-    },
-  },
-  {
-    id: "m8",
-    type: "agent",
-    agent: { char: "析", color: "bg-sage", name: "分析师" },
-    content: "",
-    time: "14:25:35",
-  },
-];
-
-const NODES = [
-  { id: "n1", label: "信息收集", status: "done" as const },
-  { id: "n2", label: "对比分析", status: "active" as const },
-  { id: "n3", label: "报告撰写", status: "pending" as const },
-  { id: "n4", label: "质量审查", status: "pending" as const },
-];
-
 const NODE_STYLE = {
   done: { dot: "bg-success", text: "text-text" },
   active: { dot: "bg-primary animate-pulse", text: "text-primary font-medium" },
   pending: { dot: "bg-border", text: "text-text-muted" },
 };
 
+type AgentStatus = "done" | "active" | "waiting";
+type NodeStatus = "done" | "active" | "pending";
+
+function stepStatusToAgentStatus(status: string | null): AgentStatus {
+  if (status === "completed") return "done";
+  if (status === "running") return "active";
+  return "waiting";
+}
+
+function stepStatusToNodeStatus(status: string | null): NodeStatus {
+  if (status === "completed") return "done";
+  if (status === "running") return "active";
+  return "pending";
+}
+
+function taskStatusToBadge(status: string): { variant: BadgeVariant; label: string } {
+  const map: Record<string, { variant: BadgeVariant; label: string }> = {
+    running: { variant: "running", label: "执行中" },
+    completed: { variant: "completed", label: "已完成" },
+    failed: { variant: "failed", label: "已失败" },
+    draft: { variant: "draft", label: "草稿" },
+    paused: { variant: "paused", label: "已暂停" },
+    blocked: { variant: "blocked", label: "已阻塞" },
+    archived: { variant: "archived", label: "已归档" },
+  };
+  return map[status] ?? { variant: "draft", label: status };
+}
+
+function formatTime(isoStr: string): string {
+  const d = new Date(isoStr);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+}
+
+function formatDuration(startIso: string, endIso?: string | null): string {
+  const start = new Date(startIso).getTime();
+  const end = endIso ? new Date(endIso).getTime() : Date.now();
+  const secs = Math.max(0, Math.floor((end - start) / 1000));
+  const h = String(Math.floor(secs / 3600)).padStart(2, "0");
+  const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+  const s = String(secs % 60).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
+
+function formatDurationSeconds(secs: number | null): string {
+  if (secs == null || secs <= 0) return "-";
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m${secs % 60}s`;
+}
+
+function tryParseTable(content: string): { headers: string[]; rows: string[][] } | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed.headers) && Array.isArray(parsed.rows)) return parsed;
+  } catch {
+    /* not a table */
+  }
+  return null;
+}
+
+function findAgent(agents: Agent[] | undefined, id: string | null): Agent | null {
+  if (!agents || !id) return null;
+  return agents.find((a) => a.id === id) ?? null;
+}
+
 export default function ConsolePage() {
-  const [selectedAgent, setSelectedAgent] = useState("ag2");
-  const [isPaused, setIsPaused] = useState(false);
-  const [inputValue, setInputValue] = useState("");
-  const streamRef = useRef<HTMLDivElement>(null);
+  const { id: routeId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  const { data: runningTasks } = useRunningTasks();
+
+  const taskId = useMemo(() => {
+    if (routeId) return routeId;
+    if (runningTasks && runningTasks.length > 0) return runningTasks[0].id;
+    return undefined;
+  }, [routeId, runningTasks]);
 
   useEffect(() => {
-    if (streamRef.current) {
+    if (!routeId && taskId) {
+      navigate(`/tasks/${taskId}/console`, { replace: true });
+    }
+  }, [routeId, taskId, navigate]);
+
+  const { data: task, isLoading: taskLoading } = useTask(taskId);
+  const { data: steps } = useTaskSteps(taskId);
+  const { data: messages } = useExecutionMessages(taskId);
+  const { data: agents } = useAgents();
+
+  const createMessage = useCreateExecutionMessage();
+  const updateStatus = useUpdateTaskStatus();
+
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const streamRef = useRef<HTMLDivElement>(null);
+  const prevMsgCount = useRef(0);
+
+  useEffect(() => {
+    if (messages && messages.length > prevMsgCount.current && streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
-  }, []);
+    prevMsgCount.current = messages?.length ?? 0;
+  }, [messages]);
+
+  const agentEntries = useMemo(() => {
+    if (!steps) return [];
+    const seen = new Map<string, TaskStep>();
+    for (const step of steps) {
+      if (!step.agent_id) continue;
+      const existing = seen.get(step.agent_id);
+      if (!existing || stepStatusToAgentStatus(step.status) === "active") {
+        seen.set(step.agent_id, step);
+      }
+    }
+    return Array.from(seen.entries()).map(([agentId, step]) => {
+      const agent = findAgent(agents, agentId);
+      const totalTokens = steps
+        .filter((s) => s.agent_id === agentId)
+        .reduce((sum, s) => sum + (s.tokens_used ?? 0), 0);
+      const totalDuration = steps
+        .filter((s) => s.agent_id === agentId)
+        .reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
+      return {
+        id: agentId,
+        char: agent?.avatar_char ?? agentId.charAt(0).toUpperCase(),
+        color: agent?.avatar_color ?? "bg-primary",
+        name: agent?.name ?? `Agent ${agentId.slice(0, 6)}`,
+        role: agent?.role_description ?? "",
+        status: stepStatusToAgentStatus(step.status),
+        tokens: totalTokens,
+        duration: formatDurationSeconds(totalDuration),
+      };
+    });
+  }, [steps, agents]);
+
+  useEffect(() => {
+    if (agentEntries.length > 0 && !selectedAgentId) {
+      const active = agentEntries.find((a) => a.status === "active");
+      setSelectedAgentId(active?.id ?? agentEntries[0].id);
+    }
+  }, [agentEntries, selectedAgentId]);
+
+  const nodes = useMemo(() => {
+    if (!steps) return [];
+    return [...steps]
+      .sort((a, b) => a.step_order - b.step_order)
+      .map((step) => ({
+        id: step.id,
+        label: step.name,
+        status: stepStatusToNodeStatus(step.status),
+      }));
+  }, [steps]);
+
+  const completedSteps = nodes.filter((n) => n.status === "done").length;
+  const totalSteps = nodes.length;
+
+  const isRunning = task?.status === "running";
+  const isPaused = task?.status === "paused";
+
+  const statusBadge = task ? taskStatusToBadge(task.status) : null;
+
+  const [elapsed, setElapsed] = useState("00:00:00");
+  useEffect(() => {
+    if (!task) return;
+    if (task.status !== "running") {
+      setElapsed(formatDuration(task.created_at, task.completed_at ?? task.updated_at));
+      return;
+    }
+    const tick = () => setElapsed(formatDuration(task.created_at));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [task]);
+
+  function handleSend() {
+    const text = inputValue.trim();
+    if (!text || !taskId) return;
+    createMessage.mutate({
+      taskId,
+      senderType: "human",
+      senderName: "用户",
+      content: text,
+      contentType: "text",
+    });
+    setInputValue("");
+  }
+
+  function handleTogglePause() {
+    if (!taskId) return;
+    updateStatus.mutate({
+      taskId,
+      status: isPaused ? "running" : "paused",
+    });
+  }
+
+  function handleTerminate() {
+    if (!taskId) return;
+    updateStatus.mutate({ taskId, status: "failed" });
+  }
+
+  if (!routeId && (!runningTasks || runningTasks.length === 0) && !taskLoading) {
+    return (
+      <div className="-m-6 flex h-[calc(100vh-var(--topbar-height))] items-center justify-center bg-bg/30">
+        <EmptyState
+          icon={Monitor}
+          title="没有正在执行的任务"
+          description="从任务中心启动一个任务后，执行过程将在这里实时展示"
+        />
+      </div>
+    );
+  }
+
+  if (taskLoading || !task) {
+    return (
+      <div className="-m-6 flex h-[calc(100vh-var(--topbar-height))] items-center justify-center bg-bg/30">
+        <Loader2 size={28} className="animate-spin text-text-muted" />
+      </div>
+    );
+  }
+
+  const tokenProgress = task.total_tokens && task.timeout_minutes
+    ? Math.min(100, Math.round((task.total_tokens / (task.timeout_minutes * 10000)) * 100))
+    : task.total_tokens
+      ? Math.min(100, Math.round((task.total_tokens / 50000) * 100))
+      : 0;
+
+  const showTyping = isRunning && messages && messages.length > 0 && messages[messages.length - 1].sender_type === "agent";
 
   return (
     <div className="-m-6 flex h-[calc(100vh-var(--topbar-height))]">
@@ -118,13 +280,13 @@ export default function ConsolePage() {
           <h3 className="text-[0.82rem] font-semibold text-text">参与 Agent</h3>
         </div>
         <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
-          {AGENTS.map((agent, i) => {
+          {agentEntries.map((agent, i) => {
             const style = AGENT_STATUS_STYLE[agent.status];
-            const isSelected = selectedAgent === agent.id;
+            const isSelected = selectedAgentId === agent.id;
             return (
               <div
                 key={agent.id}
-                onClick={() => setSelectedAgent(agent.id)}
+                onClick={() => setSelectedAgentId(agent.id)}
                 className={cn(
                   "rounded-lg p-2.5 cursor-pointer transition-all",
                   isSelected ? "bg-primary-subtle border border-primary/20" : "hover:bg-bg/70 border border-transparent"
@@ -149,7 +311,7 @@ export default function ConsolePage() {
                     </div>
                     <div className="bg-bg/80 rounded-md px-2 py-1">
                       <div className="text-[0.58rem] text-text-muted">耗时</div>
-                      <div className="text-[0.68rem] font-mono font-medium text-text">{agent.responseTime}</div>
+                      <div className="text-[0.68rem] font-mono font-medium text-text">{agent.duration}</div>
                     </div>
                   </div>
                 )}
@@ -165,7 +327,7 @@ export default function ConsolePage() {
         <div className="px-4 py-2.5 border-b border-border-light flex items-center gap-2 bg-surface/80 backdrop-blur-sm">
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setIsPaused(!isPaused)}
+              onClick={handleTogglePause}
               className={cn(
                 "w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer",
                 isPaused ? "bg-primary-light text-primary" : "text-text-muted hover:bg-bg-alt hover:text-text"
@@ -177,14 +339,18 @@ export default function ConsolePage() {
             <button className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:bg-bg-alt hover:text-text transition-colors cursor-pointer" title="重试">
               <RotateCcw size={14} />
             </button>
-            <button className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:bg-danger-light hover:text-danger transition-colors cursor-pointer" title="终止">
+            <button
+              onClick={handleTerminate}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:bg-danger-light hover:text-danger transition-colors cursor-pointer"
+              title="终止"
+            >
               <Square size={14} />
             </button>
           </div>
           <div className="h-4 w-px bg-border-light mx-1" />
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-[0.8rem] font-medium text-text truncate">竞品分析：AI 编程工具对比</span>
-            <Badge variant="running">执行中</Badge>
+            <span className="text-[0.8rem] font-medium text-text truncate">{task.title}</span>
+            {statusBadge && <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>}
           </div>
           <button className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted hover:bg-bg-alt hover:text-text transition-colors cursor-pointer" title="导出">
             <Download size={14} />
@@ -193,8 +359,8 @@ export default function ConsolePage() {
 
         {/* Message stream */}
         <div ref={streamRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-bg/30">
-          {MOCK_MESSAGES.map((msg, i) => {
-            if (msg.type === "system") {
+          {messages?.map((msg, i) => {
+            if (msg.sender_type === "system") {
               return (
                 <div
                   key={msg.id}
@@ -211,14 +377,40 @@ export default function ConsolePage() {
                       <Bot size={12} />
                     )}
                     {msg.content}
-                    {msg.time && <span className="text-text-muted/60 ml-1">{msg.time}</span>}
+                    <span className="text-text-muted/60 ml-1">{formatTime(msg.created_at)}</span>
                   </span>
                   <div className="h-px flex-1 bg-border-light/60" />
                 </div>
               );
             }
 
-            const isTyping = msg.type === "agent" && msg.content === "";
+            if (msg.sender_type === "human") {
+              return (
+                <div
+                  key={msg.id}
+                  className="flex items-start gap-3 max-w-[680px] ml-auto flex-row-reverse"
+                  style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
+                >
+                  <div className="w-7 h-7 rounded-full bg-lavender-light flex items-center justify-center mt-0.5 shrink-0">
+                    <User size={14} className="text-lavender" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 justify-end">
+                      <span className="text-[0.62rem] text-text-muted">{formatTime(msg.created_at)}</span>
+                      <span className="text-[0.75rem] font-medium text-text">{msg.sender_name ?? "用户"}</span>
+                    </div>
+                    <div className="bg-primary-light rounded-xl rounded-tr-sm px-4 py-3 border border-primary/10">
+                      <p className="text-[0.78rem] text-text-secondary leading-relaxed">{msg.content}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            const agent = findAgent(agents, msg.sender_id);
+            const avatarChar = agent?.avatar_char ?? msg.sender_name?.charAt(0) ?? "A";
+            const avatarColor = agent?.avatar_color ?? "bg-primary";
+            const table = msg.content_type === "table" ? tryParseTable(msg.content) : null;
 
             return (
               <div
@@ -226,55 +418,60 @@ export default function ConsolePage() {
                 className="flex items-start gap-3 max-w-[680px]"
                 style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
               >
-                <Avatar char={msg.agent!.char} color={msg.agent!.color} size="sm" className="mt-0.5 shrink-0" />
+                <Avatar char={avatarChar} color={avatarColor} size="sm" className="mt-0.5 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[0.75rem] font-medium text-text">{msg.agent!.name}</span>
-                    {msg.time && <span className="text-[0.62rem] text-text-muted">{msg.time}</span>}
+                    <span className="text-[0.75rem] font-medium text-text">{msg.sender_name ?? "Agent"}</span>
+                    <span className="text-[0.62rem] text-text-muted">{formatTime(msg.created_at)}</span>
                   </div>
                   <div className="bg-surface rounded-xl rounded-tl-sm px-4 py-3 border border-border-light">
-                    {isTyping ? (
-                      <div className="flex items-center gap-1.5 py-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-text-muted" style={{ animation: "pulse-dot 1.2s ease-in-out infinite" }} />
-                        <span className="w-1.5 h-1.5 rounded-full bg-text-muted" style={{ animation: "pulse-dot 1.2s ease-in-out 0.2s infinite" }} />
-                        <span className="w-1.5 h-1.5 rounded-full bg-text-muted" style={{ animation: "pulse-dot 1.2s ease-in-out 0.4s infinite" }} />
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-[0.78rem] text-text-secondary leading-relaxed">{msg.content}</p>
-                        {msg.table && (
-                          <div className="mt-3 overflow-x-auto">
-                            <table className="w-full text-[0.72rem] border-collapse">
-                              <thead>
-                                <tr>
-                                  {msg.table.headers.map((h) => (
-                                    <th key={h} className="text-left px-2.5 py-1.5 bg-bg-alt text-text-muted font-medium border-b border-border-light first:rounded-tl-md last:rounded-tr-md">
-                                      {h}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {msg.table.rows.map((row, ri) => (
-                                  <tr key={ri} className="border-b border-border-light/50 last:border-b-0">
-                                    {row.map((cell, ci) => (
-                                      <td key={ci} className="px-2.5 py-1.5 text-text-secondary">
-                                        {cell}
-                                      </td>
-                                    ))}
-                                  </tr>
+                    <p className="text-[0.78rem] text-text-secondary leading-relaxed">{table ? "" : msg.content}</p>
+                    {table && (
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="w-full text-[0.72rem] border-collapse">
+                          <thead>
+                            <tr>
+                              {table.headers.map((h) => (
+                                <th key={h} className="text-left px-2.5 py-1.5 bg-bg-alt text-text-muted font-medium border-b border-border-light first:rounded-tl-md last:rounded-tr-md">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {table.rows.map((row, ri) => (
+                              <tr key={ri} className="border-b border-border-light/50 last:border-b-0">
+                                {row.map((cell, ci) => (
+                                  <td key={ci} className="px-2.5 py-1.5 text-text-secondary">
+                                    {cell}
+                                  </td>
                                 ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
             );
           })}
+
+          {showTyping && (
+            <div className="flex items-start gap-3 max-w-[680px]" style={{ animation: "fade-in 0.25s ease both" }}>
+              <Avatar char="…" color="bg-primary" size="sm" className="mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="bg-surface rounded-xl rounded-tl-sm px-4 py-3 border border-border-light">
+                  <div className="flex items-center gap-1.5 py-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-text-muted" style={{ animation: "pulse-dot 1.2s ease-in-out infinite" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-text-muted" style={{ animation: "pulse-dot 1.2s ease-in-out 0.2s infinite" }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-text-muted" style={{ animation: "pulse-dot 1.2s ease-in-out 0.4s infinite" }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Bottom input */}
@@ -288,12 +485,12 @@ export default function ConsolePage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  setInputValue("");
+                  handleSend();
                 }
               }}
             />
             <button
-              onClick={() => setInputValue("")}
+              onClick={handleSend}
               className="w-9 h-9 rounded-lg bg-primary text-white flex items-center justify-center cursor-pointer hover:bg-primary-hover transition-colors shrink-0"
             >
               <Send size={15} />
@@ -308,12 +505,36 @@ export default function ConsolePage() {
           <h3 className="text-[0.82rem] font-semibold text-text">运行指标</h3>
         </div>
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
-          {/* Metric cards */}
           {[
-            { icon: Clock, label: "总耗时", value: "00:02:34", iconColor: "text-primary", iconBg: "bg-primary-light" },
-            { icon: Cpu, label: "Token 消耗", value: "3,847 / 50,000", iconColor: "text-sage", iconBg: "bg-sage-light", progress: Math.round((3847 / 50000) * 100) },
-            { icon: DollarSign, label: "预估费用", value: "¥0.42", iconColor: "text-sand", iconBg: "bg-sand-light" },
-            { icon: GitBranch, label: "节点进度", value: "1 / 4", iconColor: "text-lavender", iconBg: "bg-lavender-light" },
+            {
+              icon: Clock,
+              label: "总耗时",
+              value: elapsed,
+              iconColor: "text-primary",
+              iconBg: "bg-primary-light",
+            },
+            {
+              icon: Cpu,
+              label: "Token 消耗",
+              value: `${(task.total_tokens ?? 0).toLocaleString()} / 50,000`,
+              iconColor: "text-sage",
+              iconBg: "bg-sage-light",
+              progress: tokenProgress,
+            },
+            {
+              icon: DollarSign,
+              label: "预估费用",
+              value: `¥${(task.total_cost ?? 0).toFixed(2)}`,
+              iconColor: "text-sand",
+              iconBg: "bg-sand-light",
+            },
+            {
+              icon: GitBranch,
+              label: "节点进度",
+              value: `${completedSteps} / ${totalSteps}`,
+              iconColor: "text-lavender",
+              iconBg: "bg-lavender-light",
+            },
           ].map((metric, i) => (
             <div
               key={metric.label}
@@ -341,12 +562,11 @@ export default function ConsolePage() {
           <div className="rounded-lg border border-border-light p-3" style={{ animation: "fade-in 0.25s ease 0.3s both" }}>
             <h4 className="text-[0.72rem] font-medium text-text-muted mb-3">节点状态</h4>
             <div className="space-y-0">
-              {NODES.map((node, i) => {
+              {nodes.map((node, i) => {
                 const style = NODE_STYLE[node.status];
                 return (
                   <div key={node.id} className="relative flex items-center gap-2.5 py-1.5">
-                    {/* Connector line */}
-                    {i < NODES.length - 1 && (
+                    {i < nodes.length - 1 && (
                       <div className="absolute left-[5px] top-[22px] w-0.5 h-[calc(100%-6px)] bg-border-light" />
                     )}
                     <span className={cn("w-2.5 h-2.5 rounded-full shrink-0 z-10", style.dot)} />

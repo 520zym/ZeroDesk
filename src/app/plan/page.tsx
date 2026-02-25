@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { Link, useNavigate } from "react-router";
+import { useState, useCallback, useMemo } from "react";
+import { Link, useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
   RefreshCw,
@@ -14,123 +14,204 @@ import {
   FileOutput,
   Save,
   Rocket,
-  BarChart3,
-  FileText,
   Wrench,
-  Globe,
-  Code,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
-import { Avatar, Badge, Toggle, Modal } from "@/components/ui";
+import { Avatar, Badge, Modal } from "@/components/ui";
+import type { BadgeVariant } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import {
+  useTask,
+  useTaskSteps,
+  useUpdateTaskStatus,
+  useCreateTaskStep,
+  useUpdateTaskStep,
+  useDeleteTaskStep,
+  useDeleteTask,
+} from "@/hooks/useTasks";
+import { useAgents } from "@/hooks/useAgents";
+import { useWorkspaceModels } from "@/hooks/useModels";
+import type { Agent, TaskStep } from "@/types";
 
-const MOCK_GOAL = "对 Cursor、Copilot、Windsurf 三款 AI 编程工具进行多维度对比分析，输出结构化分析报告";
+const STEP_COLORS = ["bg-primary", "bg-sage", "bg-lavender", "bg-coral", "bg-sand"];
 
-const MOCK_STEPS = [
-  {
-    id: "s1",
-    number: 1,
-    name: "信息收集",
-    description: "从官网、文档、社区收集三款工具的功能特性、定价、用户评价等信息",
-    agent: { char: "检", color: "bg-primary", name: "信息采集员" },
-    output: "原始数据集",
-    color: "bg-primary",
-  },
-  {
-    id: "s2",
-    number: 2,
-    name: "多维度对比分析",
-    description: "从功能完整性、代码质量、响应速度、生态集成、定价等维度进行系统对比",
-    agent: { char: "析", color: "bg-sage", name: "对比分析师" },
-    output: "对比矩阵",
-    color: "bg-sage",
-  },
-  {
-    id: "s3",
-    number: 3,
-    name: "报告撰写",
-    description: "基于对比数据撰写结构化分析报告，包含摘要、详细对比、推荐结论",
-    agent: { char: "撰", color: "bg-lavender", name: "报告撰写员" },
-    output: "分析报告",
-    color: "bg-lavender",
-  },
-];
+const OUTPUT_OPTIONS = ["next", "report", "dataset", "json", "code"] as const;
 
-const MOCK_AGENTS = [
-  {
-    id: "a1",
-    char: "检",
-    color: "bg-primary",
-    name: "信息采集员",
-    model: "GPT-4o",
-    tools: ["网页搜索", "文档解析"],
-    badge: "复用",
-    badgeVariant: "completed" as const,
-    prompt: "你是一名专业的信息采集员，擅长从多个数据源收集、整理和验证信息...",
-  },
-  {
-    id: "a2",
-    char: "析",
-    color: "bg-sage",
-    name: "对比分析师",
-    model: "Claude 3.5",
-    tools: ["数据分析", "表格生成"],
-    badge: "复用",
-    badgeVariant: "completed" as const,
-    prompt: "你是一名资深的数据分析师，擅长多维度对比分析和结构化输出...",
-  },
-  {
-    id: "a3",
-    char: "撰",
-    color: "bg-lavender",
-    name: "报告撰写员",
-    model: "GPT-4o",
-    tools: ["Markdown 编辑", "格式化"],
-    badge: "新建",
-    badgeVariant: "draft" as const,
-    prompt: "你是一名专业的技术报告撰写员，擅长将分析结论转化为可读性强的报告...",
-  },
-];
+const OUTPUT_LABELS: Record<string, string> = {
+  next: "传递给下一步",
+  report: "分析报告",
+  dataset: "数据集",
+  json: "结构化 JSON",
+  code: "代码",
+};
 
-const MODEL_OPTIONS = ["GPT-4o", "GPT-4o-mini", "Claude 3.5", "Claude 3 Haiku", "DeepSeek V3"];
-const TOOL_OPTIONS = [
-  { id: "web", label: "网页搜索", icon: Globe },
-  { id: "doc", label: "文档解析", icon: FileText },
-  { id: "data", label: "数据分析", icon: BarChart3 },
-  { id: "table", label: "表格生成", icon: BarChart3 },
-  { id: "code", label: "代码执行", icon: Code },
-  { id: "md", label: "Markdown 编辑", icon: FileText },
-];
+const COST_TIER_LABELS: Record<string, string> = {
+  economy: "经济",
+  standard: "标准",
+  quality: "高质量",
+  unlimited: "不限",
+};
+
+const QUALITY_LABELS: Record<string, string> = {
+  loose: "宽松",
+  standard: "标准",
+  strict: "严格",
+};
+
+function parseToolsJson(toolsJson: string | null): string[] {
+  if (!toolsJson) return [];
+  try {
+    const parsed = JSON.parse(toolsJson);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function PlanPage() {
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [steps, setSteps] = useState(MOCK_STEPS);
+
+  const { data: task, isLoading: taskLoading } = useTask(id);
+  const { data: steps = [] } = useTaskSteps(id);
+  const { data: agents = [] } = useAgents();
+  const { data: models = [] } = useWorkspaceModels();
+
+  const updateTaskStatus = useUpdateTaskStatus();
+  const createTaskStep = useCreateTaskStep();
+  const updateTaskStep = useUpdateTaskStep();
+  const deleteTaskStep = useDeleteTaskStep();
+  const deleteTask = useDeleteTask();
+
   const [editingStep, setEditingStep] = useState<string | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [addAgentModal, setAddAgentModal] = useState(false);
 
-  const toggleStepEdit = useCallback((id: string) => {
-    setEditingStep((prev) => (prev === id ? null : id));
+  const sortedSteps = useMemo(
+    () => [...steps].sort((a, b) => a.step_order - b.step_order),
+    [steps],
+  );
+
+  const agentMap = useMemo(
+    () => new Map(agents.map((a) => [a.id, a])),
+    [agents],
+  );
+
+  const modelMap = useMemo(
+    () => new Map(models.map((m) => [m.id, m])),
+    [models],
+  );
+
+  const uniqueAgentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const step of sortedSteps) {
+      if (step.agent_id) ids.add(step.agent_id);
+    }
+    return ids;
+  }, [sortedSteps]);
+
+  const teamAgents = useMemo(
+    () => agents.filter((a) => uniqueAgentIds.has(a.id)),
+    [agents, uniqueAgentIds],
+  );
+
+  const getAgentForStep = useCallback(
+    (step: TaskStep): { char: string; color: string; name: string } => {
+      if (!step.agent_id) return { char: "—", color: "bg-text-muted", name: "待分配" };
+      const agent = agentMap.get(step.agent_id);
+      if (!agent) return { char: "?", color: "bg-text-muted", name: "未知 Agent" };
+      return {
+        char: agent.avatar_char || agent.name[0],
+        color: agent.avatar_color || "bg-primary",
+        name: agent.name,
+      };
+    },
+    [agentMap],
+  );
+
+  const getModelName = useCallback(
+    (modelId: string | null): string => {
+      if (!modelId) return "—";
+      return modelMap.get(modelId)?.name ?? "—";
+    },
+    [modelMap],
+  );
+
+  const toggleStepEdit = useCallback((stepId: string) => {
+    setEditingStep((prev) => (prev === stepId ? null : stepId));
   }, []);
 
-  const removeStep = useCallback((id: string) => {
-    setSteps((prev) => prev.filter((s) => s.id !== id));
-  }, []);
+  const handleStepNameBlur = useCallback(
+    (step: TaskStep, newName: string) => {
+      if (newName && newName !== step.name) {
+        updateTaskStep.mutate({ id: step.id, name: newName });
+      }
+    },
+    [updateTaskStep],
+  );
 
-  const addStep = useCallback(() => {
-    const num = steps.length + 1;
-    setSteps((prev) => [
-      ...prev,
-      {
-        id: `s${Date.now()}`,
-        number: num,
-        name: `步骤 ${num}`,
-        description: "描述此步骤的目标...",
-        agent: { char: "新", color: "bg-text-muted", name: "待分配" },
-        output: "待定义",
-        color: "bg-text-muted",
-      },
-    ]);
-  }, [steps.length]);
+  const handleAgentChange = useCallback(
+    (stepId: string, agentId: string) => {
+      updateTaskStep.mutate({ id: stepId, agentId: agentId || undefined });
+    },
+    [updateTaskStep],
+  );
+
+  const handleOutputChange = useCallback(
+    (stepId: string, outputTarget: string) => {
+      updateTaskStep.mutate({ id: stepId, outputTarget });
+    },
+    [updateTaskStep],
+  );
+
+  const handleDeleteStep = useCallback(
+    (stepId: string) => {
+      deleteTaskStep.mutate(stepId);
+      if (editingStep === stepId) setEditingStep(null);
+    },
+    [deleteTaskStep, editingStep],
+  );
+
+  const handleAddStep = useCallback(() => {
+    if (!id) return;
+    createTaskStep.mutate({
+      taskId: id,
+      stepOrder: sortedSteps.length + 1,
+      name: `步骤 ${sortedSteps.length + 1}`,
+    });
+  }, [id, createTaskStep, sortedSteps.length]);
+
+  const handleConfirmExecute = useCallback(() => {
+    if (!id) return;
+    updateTaskStatus.mutate(
+      { taskId: id, status: "running" },
+      { onSuccess: () => navigate(`/tasks/${id}/console`) },
+    );
+  }, [id, updateTaskStatus, navigate]);
+
+  if (taskLoading) {
+    return (
+      <div className="-m-6 flex h-[calc(100vh-var(--topbar-height))] items-center justify-center">
+        <Loader2 size={28} className="animate-spin text-text-muted" />
+      </div>
+    );
+  }
+
+  if (!task) {
+    return (
+      <div className="-m-6 flex h-[calc(100vh-var(--topbar-height))] items-center justify-center flex-col gap-3">
+        <AlertCircle size={32} className="text-text-muted" />
+        <p className="text-[0.85rem] text-text-muted">任务不存在或已被删除</p>
+        <Link
+          to="/tasks"
+          className="text-[0.8rem] text-primary hover:underline no-underline"
+        >
+          返回任务中心
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="-m-6 flex h-[calc(100vh-var(--topbar-height))]">
@@ -145,10 +226,26 @@ export default function PlanPage() {
             <ArrowLeft size={15} />
             返回任务中心
           </Link>
-          <button className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.78rem] font-medium bg-surface text-text-secondary border border-border-light hover:border-border-hover transition-all cursor-pointer">
-            <RefreshCw size={13} />
-            重新规划
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.78rem] font-medium bg-surface text-text-secondary border border-border-light hover:border-border-hover transition-all cursor-pointer">
+              <RefreshCw size={13} />
+              重新规划
+            </button>
+            <button
+              onClick={() => {
+                if (!id) return;
+                deleteTask.mutate(id, { onSuccess: () => navigate("/tasks") });
+              }}
+              disabled={deleteTask.isPending}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.78rem] font-medium text-danger border border-danger-light bg-danger-light/50 hover:bg-danger-light transition-all cursor-pointer",
+                deleteTask.isPending && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              <Trash2 size={13} />
+              删除任务
+            </button>
+          </div>
         </div>
 
         {/* Goal bar */}
@@ -160,13 +257,15 @@ export default function PlanPage() {
             <Target size={16} className="text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[0.85rem] font-medium text-text leading-relaxed">{MOCK_GOAL}</p>
+            <p className="text-[0.85rem] font-medium text-text leading-relaxed">
+              {task.goal || "暂无任务目标"}
+            </p>
             <div className="flex items-center gap-2 mt-2">
               <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-primary-light text-primary text-[0.68rem] font-medium">
-                标准模式
+                {COST_TIER_LABELS[task.cost_tier ?? ""] ?? task.cost_tier ?? "标准"}模式
               </span>
               <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-bg-alt text-text-muted text-[0.68rem] font-medium">
-                质量门禁：标准
+                质量门禁：{QUALITY_LABELS[task.quality_gate ?? ""] ?? task.quality_gate ?? "标准"}
               </span>
             </div>
           </div>
@@ -179,115 +278,132 @@ export default function PlanPage() {
         >
           <Lightbulb size={16} className="text-sand shrink-0 mt-0.5" />
           <p className="text-[0.78rem] text-text-secondary leading-relaxed">
-            基于目标分析，建议分三步执行：先收集三款工具的信息数据，再进行多维度系统对比，最后生成结构化报告。
-            已为你匹配 2 个可复用 Agent，并新建 1 个报告撰写 Agent。
+            {sortedSteps.length > 0
+              ? `共 ${sortedSteps.length} 个执行步骤，涉及 ${uniqueAgentIds.size} 个 Agent`
+              : "暂未生成执行计划，请手动添加步骤"}
           </p>
         </div>
 
         {/* Step list */}
         <div className="relative mb-5">
-          {steps.map((step, i) => (
-            <div
-              key={step.id}
-              className="relative"
-              style={{ animation: `fade-in 0.25s ease ${0.15 + i * 0.06}s both` }}
-            >
-              {/* Connector line */}
-              {i < steps.length - 1 && (
-                <div className="absolute left-[23px] top-[52px] w-0.5 h-[calc(100%-28px)] bg-border-light z-0" />
-              )}
+          {sortedSteps.map((step, i) => {
+            const stepAgent = getAgentForStep(step);
+            const stepColor = STEP_COLORS[step.step_order % 5];
 
-              <div className={cn(
-                "relative bg-surface rounded-xl border p-4 mb-0 transition-all group",
-                editingStep === step.id ? "border-primary/30 shadow-md" : "border-border-light hover:border-border-hover",
-                i > 0 && "mt-3"
-              )}>
-                <div className="flex items-start gap-3">
-                  {/* Left: drag handle + number */}
-                  <div className="flex flex-col items-center gap-1 shrink-0">
-                    <GripVertical size={14} className="text-text-muted/50 cursor-grab" />
-                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[0.72rem] font-bold", step.color)}>
-                      {step.number}
-                    </div>
-                  </div>
+            return (
+              <div
+                key={step.id}
+                className="relative"
+                style={{ animation: `fade-in 0.25s ease ${0.15 + i * 0.06}s both` }}
+              >
+                {i < sortedSteps.length - 1 && (
+                  <div className="absolute left-[23px] top-[52px] w-0.5 h-[calc(100%-28px)] bg-border-light z-0" />
+                )}
 
-                  {/* Body */}
-                  <div className="flex-1 min-w-0">
-                    {editingStep === step.id ? (
-                      <input
-                        value={step.name}
-                        onChange={(e) => setSteps((prev) => prev.map((s) => s.id === step.id ? { ...s, name: e.target.value } : s))}
-                        className="w-full text-[0.88rem] font-semibold text-text bg-transparent border-b border-primary/30 focus:outline-none mb-1 pb-0.5"
-                      />
-                    ) : (
-                      <h4 className="text-[0.88rem] font-semibold text-text mb-1">{step.name}</h4>
-                    )}
-                    <p className="text-[0.75rem] text-text-secondary leading-relaxed mb-2.5">{step.description}</p>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-alt text-[0.7rem] font-medium text-text-secondary">
-                        <Bot size={11} />
-                        {step.agent.name}
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-alt text-[0.7rem] font-medium text-text-muted">
-                        <FileOutput size={11} />
-                        {step.output}
-                      </span>
-                    </div>
-
-                    {/* Editing panel */}
-                    {editingStep === step.id && (
-                      <div className="mt-3 pt-3 border-t border-border-light space-y-3" style={{ animation: "fade-in 0.2s ease" }}>
-                        <div>
-                          <label className="block text-[0.7rem] font-medium text-text-muted mb-1">选择 Agent</label>
-                          <select className="w-full text-[0.75rem] bg-bg border border-border-light rounded-lg px-3 py-1.5 text-text focus:outline-none focus:border-primary/30">
-                            {MOCK_AGENTS.map((a) => (
-                              <option key={a.id}>{a.name} ({a.model})</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-[0.7rem] font-medium text-text-muted mb-1">输出类型</label>
-                          <select className="w-full text-[0.75rem] bg-bg border border-border-light rounded-lg px-3 py-1.5 text-text focus:outline-none focus:border-primary/30">
-                            <option>原始数据集</option>
-                            <option>对比矩阵</option>
-                            <option>分析报告</option>
-                            <option>结构化 JSON</option>
-                          </select>
-                        </div>
+                <div className={cn(
+                  "relative bg-surface rounded-xl border p-4 mb-0 transition-all group",
+                  editingStep === step.id ? "border-primary/30 shadow-md" : "border-border-light hover:border-border-hover",
+                  i > 0 && "mt-3"
+                )}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex flex-col items-center gap-1 shrink-0">
+                      <GripVertical size={14} className="text-text-muted/50 cursor-grab" />
+                      <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[0.72rem] font-bold", stepColor)}>
+                        {step.step_order}
                       </div>
-                    )}
-                  </div>
+                    </div>
 
-                  {/* Actions */}
-                  <div className={cn("flex items-center gap-1 shrink-0 transition-opacity", editingStep === step.id ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
-                    <button
-                      onClick={() => toggleStepEdit(step.id)}
-                      className={cn(
-                        "w-7 h-7 rounded-md flex items-center justify-center transition-colors cursor-pointer",
-                        editingStep === step.id ? "bg-primary-light text-primary" : "text-text-muted hover:bg-bg-alt hover:text-text"
+                    <div className="flex-1 min-w-0">
+                      {editingStep === step.id ? (
+                        <input
+                          defaultValue={step.name}
+                          onBlur={(e) => handleStepNameBlur(step, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                          }}
+                          className="w-full text-[0.88rem] font-semibold text-text bg-transparent border-b border-primary/30 focus:outline-none mb-1 pb-0.5"
+                        />
+                      ) : (
+                        <h4 className="text-[0.88rem] font-semibold text-text mb-1">{step.name}</h4>
                       )}
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      onClick={() => removeStep(step.id)}
-                      className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:bg-danger-light hover:text-danger transition-colors cursor-pointer"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                      <p className="text-[0.75rem] text-text-secondary leading-relaxed mb-2.5">
+                        {step.description || "暂无描述"}
+                      </p>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-alt text-[0.7rem] font-medium text-text-secondary">
+                          <Bot size={11} />
+                          {stepAgent.name}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-alt text-[0.7rem] font-medium text-text-muted">
+                          <FileOutput size={11} />
+                          {OUTPUT_LABELS[step.output_target ?? ""] ?? step.output_target ?? "—"}
+                        </span>
+                      </div>
+
+                      {editingStep === step.id && (
+                        <div className="mt-3 pt-3 border-t border-border-light space-y-3" style={{ animation: "fade-in 0.2s ease" }}>
+                          <div>
+                            <label className="block text-[0.7rem] font-medium text-text-muted mb-1">选择 Agent</label>
+                            <select
+                              value={step.agent_id ?? ""}
+                              onChange={(e) => handleAgentChange(step.id, e.target.value)}
+                              className="w-full text-[0.75rem] bg-bg border border-border-light rounded-lg px-3 py-1.5 text-text focus:outline-none focus:border-primary/30"
+                            >
+                              <option value="">待分配</option>
+                              {agents.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name} ({getModelName(a.model_id)})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[0.7rem] font-medium text-text-muted mb-1">输出类型</label>
+                            <select
+                              value={step.output_target ?? ""}
+                              onChange={(e) => handleOutputChange(step.id, e.target.value)}
+                              className="w-full text-[0.75rem] bg-bg border border-border-light rounded-lg px-3 py-1.5 text-text focus:outline-none focus:border-primary/30"
+                            >
+                              <option value="">未指定</option>
+                              {OUTPUT_OPTIONS.map((key) => (
+                                <option key={key} value={key}>{OUTPUT_LABELS[key]}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className={cn("flex items-center gap-1 shrink-0 transition-opacity", editingStep === step.id ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
+                      <button
+                        onClick={() => toggleStepEdit(step.id)}
+                        className={cn(
+                          "w-7 h-7 rounded-md flex items-center justify-center transition-colors cursor-pointer",
+                          editingStep === step.id ? "bg-primary-light text-primary" : "text-text-muted hover:bg-bg-alt hover:text-text"
+                        )}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteStep(step.id)}
+                        className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:bg-danger-light hover:text-danger transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Add step bar */}
         <button
-          onClick={addStep}
+          onClick={handleAddStep}
           className="w-full py-3 rounded-xl border-2 border-dashed border-border text-[0.78rem] font-medium text-text-muted hover:border-primary/40 hover:text-primary hover:bg-primary-subtle transition-all cursor-pointer flex items-center justify-center gap-1.5"
-          style={{ animation: `fade-in 0.25s ease ${0.15 + steps.length * 0.06}s both` }}
+          style={{ animation: `fade-in 0.25s ease ${0.15 + sortedSteps.length * 0.06}s both` }}
         >
           <Plus size={15} />
           添加步骤
@@ -300,78 +416,18 @@ export default function PlanPage() {
         <div style={{ animation: "fade-in 0.25s ease 0.1s both" }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-[0.85rem] font-semibold text-text">Agent 团队</h3>
-            <span className="text-[0.7rem] text-text-muted">{MOCK_AGENTS.length} 个</span>
+            <span className="text-[0.7rem] text-text-muted">{teamAgents.length} 个</span>
           </div>
           <div className="space-y-2">
-            {MOCK_AGENTS.map((agent, i) => (
-              <div
+            {teamAgents.map((agent, i) => (
+              <AgentCard
                 key={agent.id}
-                className="rounded-lg border border-border-light overflow-hidden"
-                style={{ animation: `fade-in 0.25s ease ${0.15 + i * 0.06}s both` }}
-              >
-                <button
-                  onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
-                  className="w-full flex items-center gap-2.5 p-3 hover:bg-bg/50 transition-colors cursor-pointer text-left"
-                >
-                  <Avatar char={agent.char} color={agent.color} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[0.78rem] font-medium text-text truncate">{agent.name}</span>
-                      <Badge variant={agent.badgeVariant}>{agent.badge}</Badge>
-                    </div>
-                    <div className="text-[0.68rem] text-text-muted mt-0.5">{agent.model}</div>
-                  </div>
-                  <ChevronDown size={14} className={cn("text-text-muted transition-transform shrink-0", expandedAgent === agent.id && "rotate-180")} />
-                </button>
-
-                {/* Tool tags */}
-                <div className="px-3 pb-2 flex flex-wrap gap-1">
-                  {agent.tools.map((tool) => (
-                    <span key={tool} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-alt text-[0.62rem] text-text-muted">
-                      <Wrench size={9} />
-                      {tool}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Expanded edit panel */}
-                {expandedAgent === agent.id && (
-                  <div className="px-3 pb-3 pt-1 border-t border-border-light space-y-2.5" style={{ animation: "fade-in 0.2s ease" }}>
-                    <div>
-                      <label className="block text-[0.68rem] font-medium text-text-muted mb-1">Prompt</label>
-                      <textarea
-                        defaultValue={agent.prompt}
-                        className="w-full h-16 px-2.5 py-1.5 rounded-md border border-border-light bg-bg text-[0.72rem] text-text resize-none focus:outline-none focus:border-primary/30"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[0.68rem] font-medium text-text-muted mb-1">模型</label>
-                      <select className="w-full text-[0.72rem] bg-bg border border-border-light rounded-md px-2.5 py-1.5 text-text focus:outline-none">
-                        {MODEL_OPTIONS.map((m) => (
-                          <option key={m} selected={m === agent.model}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[0.68rem] font-medium text-text-muted mb-1">工具</label>
-                      <div className="space-y-1.5">
-                        {TOOL_OPTIONS.map((tool) => (
-                          <div key={tool.id} className="flex items-center justify-between">
-                            <span className="text-[0.7rem] text-text-secondary flex items-center gap-1.5">
-                              <tool.icon size={11} />
-                              {tool.label}
-                            </span>
-                            <Toggle
-                              checked={agent.tools.includes(tool.label)}
-                              onChange={() => {}}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                agent={agent}
+                index={i}
+                expanded={expandedAgent === agent.id}
+                onToggle={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+                getModelName={getModelName}
+              />
             ))}
           </div>
 
@@ -392,12 +448,11 @@ export default function PlanPage() {
           <h3 className="text-[0.82rem] font-semibold text-text mb-3">成本预估</h3>
           <div className="space-y-2.5">
             {[
-              { label: "执行步骤", value: "3 步" },
-              { label: "复用 Agent", value: "2" },
-              { label: "新建 Agent", value: "1" },
-              { label: "预估 Token", value: "~15,000" },
-              { label: "预估费用", value: "≈ ¥0.18", highlight: true },
-              { label: "成本档位", value: "标准" },
+              { label: "执行步骤", value: `${sortedSteps.length} 步` },
+              { label: "Agent 数量", value: `${uniqueAgentIds.size}` },
+              { label: "成本档位", value: COST_TIER_LABELS[task.cost_tier ?? ""] ?? task.cost_tier ?? "—" },
+              { label: "预估 Token", value: "—" },
+              { label: "预估费用", value: "—", highlight: true },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
                 <span className="text-[0.72rem] text-text-muted">{row.label}</span>
@@ -412,54 +467,142 @@ export default function PlanPage() {
         {/* Confirm area */}
         <div className="mt-auto space-y-2" style={{ animation: "fade-in 0.25s ease 0.3s both" }}>
           <button
-            onClick={() => navigate("/tasks/t1/console")}
-            className="w-full py-2.5 rounded-lg text-[0.82rem] font-semibold bg-gradient-to-r from-primary to-lavender text-white cursor-pointer transition-all hover:shadow-glow shadow-sm flex items-center justify-center gap-1.5"
+            onClick={handleConfirmExecute}
+            disabled={sortedSteps.length === 0 || updateTaskStatus.isPending}
+            className={cn(
+              "w-full py-2.5 rounded-lg text-[0.82rem] font-semibold bg-gradient-to-r from-primary to-lavender text-white cursor-pointer transition-all hover:shadow-glow shadow-sm flex items-center justify-center gap-1.5",
+              (sortedSteps.length === 0 || updateTaskStatus.isPending) && "opacity-50 cursor-not-allowed",
+            )}
           >
-            <Rocket size={15} />
+            {updateTaskStatus.isPending ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Rocket size={15} />
+            )}
             确认执行
           </button>
-          <button className="w-full py-2.5 rounded-lg text-[0.78rem] font-medium text-text-secondary bg-transparent border border-border-light hover:border-border-hover hover:bg-bg/50 transition-all cursor-pointer flex items-center justify-center gap-1.5">
+          <button
+            onClick={() => navigate("/tasks")}
+            className="w-full py-2.5 rounded-lg text-[0.78rem] font-medium text-text-secondary bg-transparent border border-border-light hover:border-border-hover hover:bg-bg/50 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+          >
             <Save size={14} />
-            保存为团队模板
+            保存草稿
           </button>
         </div>
       </div>
 
       {/* Add Agent Modal */}
       <Modal open={addAgentModal} onClose={() => setAddAgentModal(false)} title="添加 Agent">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[0.78rem] font-medium text-text mb-1.5">Agent 名称</label>
-            <input
-              placeholder="输入 Agent 名称..."
-              className="w-full px-3 py-2 rounded-lg border border-border-light bg-bg text-[0.82rem] text-text placeholder:text-text-muted focus:outline-none focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
-            />
-          </div>
-          <div>
-            <label className="block text-[0.78rem] font-medium text-text mb-1.5">Prompt</label>
-            <textarea
-              placeholder="描述 Agent 的角色和职责..."
-              className="w-full h-24 px-3 py-2 rounded-lg border border-border-light bg-bg text-[0.82rem] text-text placeholder:text-text-muted resize-none focus:outline-none focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
-            />
-          </div>
-          <div>
-            <label className="block text-[0.78rem] font-medium text-text mb-1.5">模型</label>
-            <select className="w-full text-[0.82rem] bg-bg border border-border-light rounded-lg px-3 py-2 text-text focus:outline-none">
-              {MODEL_OPTIONS.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex justify-end pt-2">
-            <button
-              onClick={() => setAddAgentModal(false)}
-              className="px-4 py-2 rounded-lg text-[0.82rem] font-medium bg-primary text-white cursor-pointer hover:bg-primary-hover transition-colors"
-            >
-              确认添加
-            </button>
-          </div>
+        <div className="space-y-2">
+          {agents.length === 0 ? (
+            <p className="text-[0.78rem] text-text-muted py-4 text-center">暂无可用 Agent，请先在 Agent 管理页创建</p>
+          ) : (
+            agents.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => setAddAgentModal(false)}
+                className="w-full flex items-center gap-2.5 p-3 rounded-lg border border-border-light hover:border-primary/30 hover:bg-primary-subtle transition-all cursor-pointer text-left"
+              >
+                <Avatar
+                  char={agent.avatar_char || agent.name[0]}
+                  color={agent.avatar_color || "bg-primary"}
+                  size="sm"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[0.78rem] font-medium text-text truncate block">{agent.name}</span>
+                  <span className="text-[0.68rem] text-text-muted">{getModelName(agent.model_id)}</span>
+                </div>
+              </button>
+            ))
+          )}
         </div>
       </Modal>
+    </div>
+  );
+}
+
+function AgentCard({
+  agent,
+  index,
+  expanded,
+  onToggle,
+  getModelName,
+}: {
+  agent: Agent;
+  index: number;
+  expanded: boolean;
+  onToggle: () => void;
+  getModelName: (id: string | null) => string;
+}) {
+  const tools = parseToolsJson(agent.tools_json);
+  const badgeVariant: BadgeVariant = "completed";
+
+  return (
+    <div
+      className="rounded-lg border border-border-light overflow-hidden"
+      style={{ animation: `fade-in 0.25s ease ${0.15 + index * 0.06}s both` }}
+    >
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2.5 p-3 hover:bg-bg/50 transition-colors cursor-pointer text-left"
+      >
+        <Avatar
+          char={agent.avatar_char || agent.name[0]}
+          color={agent.avatar_color || "bg-primary"}
+          size="sm"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[0.78rem] font-medium text-text truncate">{agent.name}</span>
+            <Badge variant={badgeVariant}>已有</Badge>
+          </div>
+          <div className="text-[0.68rem] text-text-muted mt-0.5">{getModelName(agent.model_id)}</div>
+        </div>
+        <ChevronDown size={14} className={cn("text-text-muted transition-transform shrink-0", expanded && "rotate-180")} />
+      </button>
+
+      {tools.length > 0 && (
+        <div className="px-3 pb-2 flex flex-wrap gap-1">
+          {tools.map((tool) => (
+            <span key={tool} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-alt text-[0.62rem] text-text-muted">
+              <Wrench size={9} />
+              {tool}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {expanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-border-light space-y-2.5" style={{ animation: "fade-in 0.2s ease" }}>
+          <div>
+            <label className="block text-[0.68rem] font-medium text-text-muted mb-1">Prompt</label>
+            <textarea
+              readOnly
+              value={agent.system_prompt ?? ""}
+              className="w-full h-16 px-2.5 py-1.5 rounded-md border border-border-light bg-bg text-[0.72rem] text-text resize-none focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-[0.68rem] font-medium text-text-muted mb-1">模型</label>
+            <div className="text-[0.72rem] text-text px-2.5 py-1.5 rounded-md border border-border-light bg-bg">
+              {getModelName(agent.model_id)}
+            </div>
+          </div>
+          {tools.length > 0 && (
+            <div>
+              <label className="block text-[0.68rem] font-medium text-text-muted mb-1">工具</label>
+              <div className="flex flex-wrap gap-1.5">
+                {tools.map((tool) => (
+                  <span key={tool} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-alt text-[0.68rem] text-text-secondary">
+                    <Wrench size={10} />
+                    {tool}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

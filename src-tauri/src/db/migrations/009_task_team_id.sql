@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN team_id TEXT REFERENCES teams(id);
