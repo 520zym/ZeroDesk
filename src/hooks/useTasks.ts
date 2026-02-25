@@ -141,6 +141,7 @@ export function useCreateExecutionMessage() {
       content: string;
       contentType?: string;
       metadataJson?: string;
+      runId?: string;
     }) => tauriInvoke<ExecutionMessage>("create_execution_message", params),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({

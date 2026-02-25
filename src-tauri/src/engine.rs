@@ -84,13 +84,24 @@ pub async fn run_task(
 
     let mut previous_output = String::new();
     if start_index > 0 {
-        let last_msg: Option<(String,)> = sqlx::query_as(
-            "SELECT content FROM execution_messages WHERE task_id = ?1 AND sender_type = 'agent' ORDER BY created_at DESC LIMIT 1",
-        )
-        .bind(&task_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        let last_msg: Option<(String,)> = if let Some(ref rid) = run_id {
+            sqlx::query_as(
+                "SELECT content FROM execution_messages WHERE task_id = ?1 AND run_id = ?2 AND sender_type = 'agent' ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(&task_id)
+            .bind(rid)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+        } else {
+            sqlx::query_as(
+                "SELECT content FROM execution_messages WHERE task_id = ?1 AND sender_type = 'agent' ORDER BY created_at DESC LIMIT 1",
+            )
+            .bind(&task_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+        };
         previous_output = last_msg.map(|(c,)| c).unwrap_or_default();
     }
 

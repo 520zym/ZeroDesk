@@ -16,6 +16,7 @@ import {
   X,
   FileSearch,
   History,
+  Loader2,
 } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { StatCard, Badge, EmptyState } from "@/components/ui";
@@ -339,6 +340,7 @@ export default function HistoryPage() {
                     teams={teams}
                     reviewingId={reviewingId}
                     expandedTaskId={expandedTaskId}
+                    rerunPending={rerunTask.isPending}
                     onToggleReview={toggleReview}
                     onToggleExpand={(id) => setExpandedTaskId((prev) => (prev === id ? null : id))}
                     onRerun={handleRerun}
@@ -360,6 +362,7 @@ function TaskHistoryRow({
   teams,
   reviewingId,
   expandedTaskId,
+  rerunPending,
   onToggleReview,
   onToggleExpand,
   onRerun,
@@ -370,6 +373,7 @@ function TaskHistoryRow({
   teams: Team[] | undefined;
   reviewingId: string | null;
   expandedTaskId: string | null;
+  rerunPending: boolean;
   onToggleReview: (id: string) => void;
   onToggleExpand: (id: string) => void;
   onRerun: (task: Task) => void;
@@ -446,7 +450,7 @@ function TaskHistoryRow({
               <ExternalLink size={11} />
               详情
             </button>
-            {task.status === "failed" ? (
+            {task.status === "failed" && (
               <button
                 onClick={() => onToggleReview(task.id)}
                 className={cn(
@@ -457,15 +461,20 @@ function TaskHistoryRow({
                 <FileSearch size={11} />
                 复盘
               </button>
-            ) : task.status === "completed" ? (
+            )}
+            {(task.status === "completed" || task.status === "failed") && (
               <button
                 onClick={() => onRerun(task)}
-                className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-sage hover:text-sage transition-colors cursor-pointer"
+                disabled={rerunPending}
+                className={cn(
+                  "inline-flex items-center gap-1 text-[0.72rem] font-medium text-sage hover:text-sage transition-colors cursor-pointer",
+                  rerunPending && "opacity-50 cursor-not-allowed"
+                )}
               >
-                <RotateCcw size={11} />
-                重新执行
+                {rerunPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                {rerunPending ? "执行中..." : "重新执行"}
               </button>
-            ) : null}
+            )}
           </div>
         </td>
       </tr>
@@ -495,7 +504,7 @@ function TaskHistoryRow({
                       {runStart.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                     </span>
                     <button
-                      onClick={() => onNavigate(`/tasks/${task.id}/console`)}
+                      onClick={() => onNavigate(`/tasks/${task.id}/console?runId=${run.id}`)}
                       className="ml-auto inline-flex items-center gap-1 text-[0.68rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer"
                     >
                       <ExternalLink size={10} />

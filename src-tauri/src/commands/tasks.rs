@@ -287,11 +287,12 @@ pub async fn create_execution_message(
     content: String,
     content_type: Option<String>,
     metadata_json: Option<String>,
+    run_id: Option<String>,
 ) -> Result<ExecutionMessage, String> {
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO execution_messages (id, task_id, sender_type, sender_id, sender_name, content, content_type, metadata_json)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO execution_messages (id, task_id, sender_type, sender_id, sender_name, content, content_type, metadata_json, run_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )
     .bind(&id)
     .bind(&task_id)
@@ -301,6 +302,7 @@ pub async fn create_execution_message(
     .bind(&content)
     .bind(&content_type.unwrap_or_else(|| "text".into()))
     .bind(&metadata_json)
+    .bind(&run_id)
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -692,24 +694,34 @@ pub async fn rerun_task(
     .await
     .map_err(|e| e.to_string())?;
 
-    let latest_run_id: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM task_runs WHERE task_id = ?1 AND run_number = ?2",
-    )
-    .bind(&task_id)
-    .bind(max_run.0.max(1))
-    .fetch_optional(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let source_steps: Vec<TaskStep> = if let Some((prev_run_id,)) = latest_run_id {
-        sqlx::query_as::<_, TaskStep>(
-            "SELECT * FROM task_steps WHERE task_id = ?1 AND run_id = ?2 ORDER BY step_order ASC",
+    let source_steps: Vec<TaskStep> = if max_run.0 > 0 {
+        let prev_run_id: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM task_runs WHERE task_id = ?1 AND run_number = ?2",
         )
         .bind(&task_id)
-        .bind(&prev_run_id)
-        .fetch_all(pool.inner())
+        .bind(max_run.0)
+        .fetch_optional(pool.inner())
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+        if let Some((rid,)) = prev_run_id {
+            sqlx::query_as::<_, TaskStep>(
+                "SELECT * FROM task_steps WHERE task_id = ?1 AND run_id = ?2 ORDER BY step_order ASC",
+            )
+            .bind(&task_id)
+            .bind(&rid)
+            .fetch_all(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?
+        } else {
+            sqlx::query_as::<_, TaskStep>(
+                "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
+            )
+            .bind(&task_id)
+            .fetch_all(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?
+        }
     } else {
         sqlx::query_as::<_, TaskStep>(
             "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",

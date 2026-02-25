@@ -23,7 +23,7 @@ import {
 import { Avatar, Badge, ProgressBar, EmptyState, MarkdownContent } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { useParams, useNavigate } from "react-router";
+import { useParams, useNavigate, useSearchParams } from "react-router";
 import {
   useTask,
   useTaskSteps,
@@ -151,6 +151,7 @@ function ThinkingSection({ thinking }: { thinking: string }) {
 export default function ConsolePage() {
   const { id: routeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const { data: allTasks } = useTasks();
 
@@ -174,10 +175,19 @@ export default function ConsolePage() {
   }, [routeId, taskId, navigate]);
 
   const { data: task, isLoading: taskLoading } = useTask(taskId);
-  const { data: taskRuns } = useTaskRuns(taskId);
+  const { data: taskRuns, isLoading: runsLoading } = useTaskRuns(taskId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runSelectorOpen, setRunSelectorOpen] = useState(false);
   const runSelectorRef = useRef<HTMLDivElement>(null);
+
+  // Read initial runId from URL search params (e.g. navigated from history page)
+  const urlRunId = searchParams.get("runId");
+  useEffect(() => {
+    if (urlRunId && taskRuns && taskRuns.some((r) => r.id === urlRunId)) {
+      setSelectedRunId(urlRunId);
+      setSearchParams({}, { replace: true });
+    }
+  }, [urlRunId, taskRuns, setSearchParams]);
 
   const latestRunId = useMemo(() => {
     if (!taskRuns || taskRuns.length === 0) return null;
@@ -186,8 +196,9 @@ export default function ConsolePage() {
 
   const activeRunId = selectedRunId ?? latestRunId;
 
-  const { data: steps } = useTaskSteps(taskId, activeRunId);
-  const { data: messages } = useExecutionMessages(taskId, { runId: activeRunId });
+  const runsReady = !runsLoading && !!taskRuns;
+  const { data: steps } = useTaskSteps(runsReady ? taskId : undefined, activeRunId);
+  const { data: messages } = useExecutionMessages(runsReady ? taskId : undefined, { runId: activeRunId });
   const { data: agents } = useAgents();
 
   const createMessage = useCreateExecutionMessage();
@@ -226,6 +237,10 @@ export default function ConsolePage() {
   useEffect(() => {
     setSelectedRunId(null);
   }, [taskId]);
+
+  useEffect(() => {
+    setSelectedAgentId(null);
+  }, [activeRunId]);
 
   useEffect(() => {
     if (!taskSelectorOpen && !runSelectorOpen) return;
@@ -324,6 +339,7 @@ export default function ConsolePage() {
       senderName: "用户",
       content: text,
       contentType: "text",
+      runId: activeRunId ?? undefined,
     });
     setInputValue("");
   }
