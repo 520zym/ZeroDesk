@@ -1,0 +1,36 @@
+feat: 完成全部页面功能开发与 Rust 后端基础设施搭建
+
+改动点:
+
+一、Rust 后端 (src-tauri/)
+- 新增 sqlx/tokio/uuid/chrono/thiserror/anyhow/tracing 等依赖 (Cargo.toml)
+- 新增数据库初始化与迁移模块 (src/db/), 含 20 张表的 DDL
+- 新增 18 个核心数据模型 (src/models/)
+- 新增 9 个 Tauri Command 模块 (src/commands/): workspace/tasks/agents/teams/models/skills/knowledge/prompts/dashboard
+- lib.rs 集成数据库初始化、状态管理与全部命令注册
+
+二、前端基础设施 (src/)
+- 新增 8 个共享 UI 组件: Modal/Drawer/Badge/Tabs/Toggle/Avatar/ProgressBar/StatCard
+- 新增 Tauri IPC 封装 (lib/tauri.ts)
+- 新增 Zustand 全局状态 store (stores/useAppStore.ts)
+- 新增 8 个 TanStack Query 数据 hooks (hooks/)
+- 新增 TypeScript 类型定义 (types/index.ts)
+- main.tsx 集成 QueryClientProvider
+
+三、12 个页面全部实现 (src/app/)
+- 任务中心 (tasks): 任务卡片、统计栏、模板栏、筛选 Tab、新建弹窗
+- 执行计划 (plan): 步骤编辑器、Agent 团队侧栏、成本预估、添加 Agent 弹窗
+- 执行控制台 (console): Agent 状态面板、消息流、数据表格、指标面板
+- Agent 管理 (agents): Agent 卡片网格、右侧详情抽屉、手动创建弹窗
+- 团队管理 (teams): 团队卡片网格、团队构建器、新建团队弹窗
+- 模型与路由 (models): 供应商卡片、模型池表格、Fallback 链、韧性设置
+- Skills 中心 (skills): Skill 卡片网格、Tab 筛选、搜索、作用域面板
+- 知识库 (knowledge): 文档树、文档查看器、版本时间线
+- Prompt 模板 (prompts): Prompt 版本管理、历史记录、任务模板库
+- 任务历史 (history): 统计卡片、筛选栏、历史表格、故障复盘面板
+- 数据看板 (dashboard): KPI 卡片、CSS 图表、系统设置面板
+- (knowledge 页面为第 12 个)
+
+四、UI 修复
+- 移除 8 个页面中与 Topbar 重复的页面标题
+- 为 8 个页面补回副标题描述文字, 与右侧操作按钮形成 justify-between 布局
