@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::db::DEFAULT_WORKSPACE_ID;
-use crate::models::{Agent, Team};
+use crate::models::{Agent, Team, TeamMember};
 
 #[tauri::command]
 pub async fn list_teams(
@@ -54,6 +54,7 @@ pub async fn update_team(
     name: Option<String>,
     description: Option<String>,
     color: Option<String>,
+    shared_skills_json: Option<String>,
 ) -> Result<Team, String> {
     let existing = sqlx::query_as::<_, Team>("SELECT * FROM teams WHERE id = ?1")
         .bind(&id)
@@ -62,11 +63,12 @@ pub async fn update_team(
         .map_err(|e| e.to_string())?;
 
     sqlx::query(
-        "UPDATE teams SET name = ?1, description = ?2, color = ?3, updated_at = datetime('now') WHERE id = ?4",
+        "UPDATE teams SET name = ?1, description = ?2, color = ?3, shared_skills_json = ?4, updated_at = datetime('now') WHERE id = ?5",
     )
     .bind(name.unwrap_or(existing.name))
     .bind(description.or(existing.description))
     .bind(color.or(existing.color))
+    .bind(shared_skills_json.or(existing.shared_skills_json))
     .bind(&id)
     .execute(pool.inner())
     .await
@@ -77,6 +79,19 @@ pub async fn update_team(
         .fetch_one(pool.inner())
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_team(
+    pool: State<'_, SqlitePool>,
+    id: String,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM teams WHERE id = ?1")
+        .bind(&id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -107,6 +122,16 @@ pub async fn remove_team_member(
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_all_team_members(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<TeamMember>, String> {
+    sqlx::query_as::<_, TeamMember>("SELECT * FROM team_members")
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

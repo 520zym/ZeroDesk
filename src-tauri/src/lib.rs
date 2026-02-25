@@ -61,6 +61,8 @@ pub fn run() {
             teams::add_team_member,
             teams::remove_team_member,
             teams::get_team_members,
+            teams::list_all_team_members,
+            teams::delete_team,
             // models
             models_cmd::list_providers,
             models_cmd::create_provider,

@@ -60,19 +60,20 @@ export interface Agent {
 
 export interface Team {
   id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
-  strategy: string;
+  color: string | null;
+  shared_skills_json: string | null;
+  task_count: number | null;
+  success_rate: number | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface TeamMember {
-  id: string;
   team_id: string;
   agent_id: string;
-  role_in_team: string;
-  priority: number;
 }
 
 // ─── Model ───────────────────────────────────────────────────
