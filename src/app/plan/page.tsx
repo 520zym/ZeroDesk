@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   Wrench,
   Loader2,
   AlertCircle,
+  Sparkles,
 } from "lucide-react";
 import { Avatar, Badge, Modal } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
@@ -29,6 +30,8 @@ import {
   useUpdateTaskStep,
   useDeleteTaskStep,
   useDeleteTask,
+  useInitializeTaskFromTeam,
+  useSmartPlanTask,
 } from "@/hooks/useTasks";
 import { useAgents } from "@/hooks/useAgents";
 import { useWorkspaceModels } from "@/hooks/useModels";
@@ -83,10 +86,38 @@ export default function PlanPage() {
   const updateTaskStep = useUpdateTaskStep();
   const deleteTaskStep = useDeleteTaskStep();
   const deleteTask = useDeleteTask();
+  const initFromTeam = useInitializeTaskFromTeam();
+  const smartPlanTask = useSmartPlanTask();
 
   const [editingStep, setEditingStep] = useState<string | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [addAgentModal, setAddAgentModal] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+  const initAttempted = useRef(false);
+
+  useEffect(() => {
+    if (!task || !id || steps.length > 0 || initializing || initAttempted.current) return;
+
+    if (task.plan_mode === "reuse" && task.team_id) {
+      initAttempted.current = true;
+      setInitializing(true);
+      setInitError(null);
+      initFromTeam
+        .mutateAsync({ taskId: id, teamId: task.team_id })
+        .catch((e) => setInitError(String(e)))
+        .finally(() => setInitializing(false));
+    } else if (task.plan_mode === "ai" && (task.goal || task.description)) {
+      initAttempted.current = true;
+      setInitializing(true);
+      setInitError(null);
+      smartPlanTask
+        .mutateAsync({ taskId: id })
+        .catch((e) => setInitError(String(e)))
+        .finally(() => setInitializing(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task, id, steps.length]);
 
   const sortedSteps = useMemo(
     () => [...steps].sort((a, b) => a.step_order - b.step_order),
@@ -227,8 +258,27 @@ export default function PlanPage() {
             返回任务中心
           </Link>
           <div className="flex items-center gap-2">
-            <button className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.78rem] font-medium bg-surface text-text-secondary border border-border-light hover:border-border-hover transition-all cursor-pointer">
-              <RefreshCw size={13} />
+            <button
+              onClick={() => {
+                if (!id || initializing) return;
+                initAttempted.current = false;
+                setInitError(null);
+                setInitializing(true);
+                const promise =
+                  task.plan_mode === "reuse" && task.team_id
+                    ? initFromTeam.mutateAsync({ taskId: id, teamId: task.team_id })
+                    : smartPlanTask.mutateAsync({ taskId: id });
+                promise
+                  .catch((e) => setInitError(String(e)))
+                  .finally(() => setInitializing(false));
+              }}
+              disabled={initializing}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.78rem] font-medium bg-surface text-text-secondary border border-border-light hover:border-border-hover transition-all cursor-pointer",
+                initializing && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              {initializing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
               重新规划
             </button>
             <button
@@ -271,18 +321,75 @@ export default function PlanPage() {
           </div>
         </div>
 
-        {/* AI explanation */}
-        <div
-          className="bg-sand-light rounded-xl p-4 mb-5 flex items-start gap-3"
-          style={{ animation: "fade-in 0.25s ease 0.1s both" }}
-        >
-          <Lightbulb size={16} className="text-sand shrink-0 mt-0.5" />
-          <p className="text-[0.78rem] text-text-secondary leading-relaxed">
-            {sortedSteps.length > 0
-              ? `共 ${sortedSteps.length} 个执行步骤，涉及 ${uniqueAgentIds.size} 个 Agent`
-              : "暂未生成执行计划，请手动添加步骤"}
-          </p>
-        </div>
+        {/* AI explanation / initialization status */}
+        {initializing ? (
+          <div
+            className="bg-primary-subtle rounded-xl p-4 mb-5 flex items-center gap-3"
+            style={{ animation: "fade-in 0.25s ease 0.1s both" }}
+          >
+            <Loader2 size={16} className="text-primary animate-spin shrink-0" />
+            <div className="flex-1">
+              <p className="text-[0.78rem] font-medium text-primary">
+                {task.plan_mode === "ai" ? "AI 正在分析目标并生成执行计划..." : "正在从团队加载执行计划..."}
+              </p>
+              <p className="text-[0.68rem] text-text-muted mt-0.5">
+                {task.plan_mode === "ai" ? "使用「任务规划」系统模型，可能需要 10-30 秒" : "请稍候..."}
+              </p>
+            </div>
+          </div>
+        ) : initError ? (
+          <div
+            className="bg-danger-light rounded-xl p-4 mb-5 flex items-start gap-3"
+            style={{ animation: "fade-in 0.25s ease 0.1s both" }}
+          >
+            <AlertCircle size={16} className="text-danger shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[0.78rem] font-medium text-danger">生成执行计划失败</p>
+              <p className="text-[0.68rem] text-text-secondary mt-0.5 break-all">{initError}</p>
+            </div>
+            <button
+              onClick={() => {
+                if (!id) return;
+                setInitError(null);
+                setInitializing(true);
+                const promise =
+                  task.plan_mode === "reuse" && task.team_id
+                    ? initFromTeam.mutateAsync({ taskId: id, teamId: task.team_id })
+                    : smartPlanTask.mutateAsync({ taskId: id });
+                promise
+                  .catch((e) => setInitError(String(e)))
+                  .finally(() => setInitializing(false));
+              }}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.75rem] font-medium bg-surface text-text-secondary border border-border-light hover:border-primary/30 hover:text-primary transition-all cursor-pointer"
+            >
+              <RefreshCw size={12} />
+              重试
+            </button>
+          </div>
+        ) : (
+          <div
+            className="bg-sand-light rounded-xl p-4 mb-5 flex items-start gap-3"
+            style={{ animation: "fade-in 0.25s ease 0.1s both" }}
+          >
+            {sortedSteps.length > 0 ? (
+              <>
+                <Sparkles size={16} className="text-sand shrink-0 mt-0.5" />
+                <p className="text-[0.78rem] text-text-secondary leading-relaxed">
+                  共 {sortedSteps.length} 个执行步骤，涉及 {uniqueAgentIds.size} 个 Agent
+                  {task.plan_mode === "ai" && " — 由 AI 自动规划生成"}
+                  {task.plan_mode === "reuse" && " — 基于已有团队配置"}
+                </p>
+              </>
+            ) : (
+              <>
+                <Lightbulb size={16} className="text-sand shrink-0 mt-0.5" />
+                <p className="text-[0.78rem] text-text-secondary leading-relaxed">
+                  暂未生成执行计划，请手动添加步骤
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Step list */}
         <div className="relative mb-5">

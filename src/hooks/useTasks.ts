@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
-import type { Task, TaskStats, TaskStep, ExecutionMessage } from "@/types";
+import type { Task, TaskStats, TaskStep, TaskStepSummary, ExecutionMessage } from "@/types";
 
 export function useTasks() {
   return useQuery({
@@ -30,6 +30,13 @@ export function useTaskStats() {
   return useQuery({
     queryKey: ["task-stats"],
     queryFn: () => tauriInvoke<TaskStats>("get_task_stats"),
+  });
+}
+
+export function useTaskStepSummaries() {
+  return useQuery({
+    queryKey: ["task-step-summaries"],
+    queryFn: () => tauriInvoke<TaskStepSummary[]>("list_task_step_summaries"),
   });
 }
 
@@ -203,6 +210,37 @@ export function useDeleteTask() {
       qc.invalidateQueries({ queryKey: ["task-stats"] });
       qc.invalidateQueries({ queryKey: ["history-tasks"] });
       qc.invalidateQueries({ queryKey: ["history-stats"] });
+    },
+  });
+}
+
+export function useInitializeTaskFromTeam() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskId: string; teamId: string }) =>
+      tauriInvoke<TaskStep[]>("initialize_task_from_team", params),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["task-steps", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      qc.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useSmartPlanTask() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskId: string }) =>
+      tauriInvoke<TaskStep[]>("smart_plan_task", params),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["task-steps", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      qc.invalidateQueries({ queryKey: ["teams"] });
+      qc.invalidateQueries({ queryKey: ["all-team-members"] });
     },
   });
 }

@@ -55,6 +55,9 @@ pub fn run() {
             tasks::reorder_task_steps,
             tasks::list_execution_messages,
             tasks::create_execution_message,
+            tasks::list_task_step_summaries,
+            tasks::initialize_task_from_team,
+            tasks::smart_plan_task,
             // agents
             agents::list_agents,
             agents::get_agent,

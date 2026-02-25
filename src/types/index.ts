@@ -44,6 +44,12 @@ export interface TaskStats {
   draft: number;
 }
 
+export interface TaskStepSummary {
+  task_id: string;
+  total_steps: number;
+  completed_steps: number;
+}
+
 // ─── Agent ───────────────────────────────────────────────────
 
 export interface Agent {

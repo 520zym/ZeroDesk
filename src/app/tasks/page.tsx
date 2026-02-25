@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import {
   Play,
@@ -21,12 +21,31 @@ import {
   AlertTriangle,
   Trash2,
 } from "lucide-react";
-import { StatCard, Badge, Tabs, Modal, ProgressBar, EmptyState } from "@/components/ui";
+import { StatCard, Badge, Tabs, Modal, ProgressBar, EmptyState, AvatarStack } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { useTasks, useTaskStats, useCreateTask, useDeleteTask } from "@/hooks/useTasks";
-import { useTeams } from "@/hooks/useTeams";
+import { useTasks, useTaskStats, useCreateTask, useDeleteTask, useTaskStepSummaries } from "@/hooks/useTasks";
+import { useTeams, useAllTeamMembers } from "@/hooks/useTeams";
+import { useAgents } from "@/hooks/useAgents";
 import type { Task } from "@/types";
+
+function formatDuration(startStr: string, endStr: string): string {
+  const start = new Date(startStr + "Z").getTime();
+  const end = new Date(endStr + "Z").getTime();
+  const diffS = Math.max(0, Math.round((end - start) / 1000));
+  if (diffS < 60) return `${diffS}秒`;
+  const m = Math.floor(diffS / 60);
+  if (m < 60) return `${m}分钟`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}小时${rm}分` : `${h}小时`;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
 
 const STATUS_LABELS: Record<string, string> = {
   running: "进行中",
@@ -119,8 +138,47 @@ export default function TasksPage() {
   const { data: tasks, isLoading: tasksLoading, error: tasksError } = useTasks();
   const { data: stats, isLoading: statsLoading } = useTaskStats();
   const { data: teams } = useTeams();
+  const { data: allMembers = [] } = useAllTeamMembers();
+  const { data: allAgents = [] } = useAgents();
+  const { data: stepSummaries = [] } = useTaskStepSummaries();
   const createTask = useCreateTask();
   const deleteTask = useDeleteTask();
+
+  const agentMap = useMemo(
+    () => new Map(allAgents.map((a) => [a.id, a])),
+    [allAgents],
+  );
+
+  const teamAgentAvatars = useMemo(() => {
+    const map = new Map<string, { char: string; color: string }[]>();
+    const grouped = new Map<string, string[]>();
+    for (const m of allMembers) {
+      const arr = grouped.get(m.team_id) ?? [];
+      arr.push(m.agent_id);
+      grouped.set(m.team_id, arr);
+    }
+    for (const [teamId, agentIds] of grouped) {
+      const avatars = agentIds
+        .map((aid) => agentMap.get(aid))
+        .filter(Boolean)
+        .map((a) => ({
+          char: a!.avatar_char || a!.name[0],
+          color: a!.avatar_color || "bg-primary",
+        }));
+      map.set(teamId, avatars);
+    }
+    return map;
+  }, [allMembers, agentMap]);
+
+  const stepSummaryMap = useMemo(
+    () => new Map(stepSummaries.map((s) => [s.task_id, s])),
+    [stepSummaries],
+  );
+
+  const teamNameMap = useMemo(
+    () => new Map((teams ?? []).map((t) => [t.id, t.name])),
+    [teams],
+  );
 
   const resetModal = useCallback(() => {
     setTitle("");
@@ -295,20 +353,71 @@ export default function TasksPage() {
               <p className="text-[0.78rem] text-text-secondary leading-relaxed mb-4 line-clamp-2">
                 {task.description || task.goal || "暂无描述"}
               </p>
-              <div className="flex items-center gap-2 mb-4">
+              {/* Progress row */}
+              <div className="flex items-center gap-2 mb-3">
                 <ProgressBar value={task.progress ?? 0} variant={progressVariant(task.status)} size="sm" />
-                <span className="text-[0.7rem] text-text-muted font-mono shrink-0">{task.progress ?? 0}%</span>
+                {(() => {
+                  const summary = stepSummaryMap.get(task.id);
+                  if (summary && summary.total_steps > 0) {
+                    return (
+                      <span className="text-[0.68rem] text-text-muted font-mono shrink-0 whitespace-nowrap">
+                        {summary.completed_steps}/{summary.total_steps} 步
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-[0.68rem] text-text-muted font-mono shrink-0">{task.progress ?? 0}%</span>
+                  );
+                })()}
               </div>
+
+              {/* Meta tags row */}
+              <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                {task.team_id && (teamAgentAvatars.get(task.team_id)?.length ?? 0) > 0 && (
+                  <AvatarStack avatars={teamAgentAvatars.get(task.team_id)!} size="xs" />
+                )}
+                {task.team_id && teamNameMap.get(task.team_id) && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-primary-light text-primary">
+                    <Users size={9} />
+                    {teamNameMap.get(task.team_id)}
+                  </span>
+                )}
+                {task.plan_mode && (
+                  <span className={cn(
+                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium",
+                    task.plan_mode === "ai" ? "bg-lavender/15 text-lavender" : "bg-sage/15 text-sage"
+                  )}>
+                    {task.plan_mode === "ai" ? <Sparkles size={9} /> : <Users size={9} />}
+                    {task.plan_mode === "ai" ? "AI 规划" : "复用团队"}
+                  </span>
+                )}
+                {task.cost_tier && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-bg-alt text-text-muted">
+                    {COST_TIER_LABELS[task.cost_tier] ?? task.cost_tier}
+                  </span>
+                )}
+                {(task.total_tokens ?? 0) > 0 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-sand-light text-sand">
+                    {formatTokens(task.total_tokens!)} tok
+                  </span>
+                )}
+                {(task.total_cost ?? 0) > 0 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-coral/10 text-coral">
+                    ${task.total_cost!.toFixed(3)}
+                  </span>
+                )}
+              </div>
+
+              {/* Footer row */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {task.cost_tier && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[0.65rem] font-medium bg-bg-alt text-text-muted border border-border-light">
-                      {COST_TIER_LABELS[task.cost_tier] ?? task.cost_tier}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[0.7rem] text-text-muted">{formatRelativeTime(task.updated_at)}</span>
+                <span className="text-[0.68rem] text-text-muted">
+                  {task.status === "completed" && task.completed_at
+                    ? `耗时 ${formatDuration(task.created_at, task.completed_at)}`
+                    : task.status === "running" && task.timeout_minutes && task.timeout_minutes > 0
+                      ? `超时 ${task.timeout_minutes} 分钟`
+                      : formatRelativeTime(task.updated_at)}
+                </span>
+                <div className="flex items-center gap-1.5">
                   {task.status !== "running" && (
                     <button
                       onClick={(e) => {

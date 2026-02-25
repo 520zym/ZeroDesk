@@ -247,6 +247,13 @@ pub struct SystemSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskStepSummary {
+    pub task_id: String,
+    pub total_steps: i64,
+    pub completed_steps: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SystemModelAssignment {
     pub workspace_id: String,
     pub task_key: String,
