@@ -41,7 +41,7 @@ const timeBuckets = [
 
 export default function DashboardPage() {
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6 pt-5 pb-6">
+    <div className="flex flex-col h-full overflow-hidden px-4 sm:px-6 pt-5 pb-6">
       {/* Header */}
       <div
         className="shrink-0 mb-5"
@@ -60,7 +60,7 @@ function DashboardView() {
     <div className="flex-1 overflow-y-auto space-y-5">
       {/* KPI Row */}
       <div
-        className="grid grid-cols-4 gap-4"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
         style={{ animation: "fade-in 0.3s ease-out 60ms both" }}
       >
         <StatCard
@@ -98,7 +98,7 @@ function DashboardView() {
 
       {/* Charts Grid */}
       <div
-        className="grid grid-cols-2 gap-4"
+        className="grid grid-cols-1 lg:grid-cols-2 gap-4"
         style={{ animation: "fade-in 0.35s ease-out 120ms both" }}
       >
         {/* Weekly Task Trend */}

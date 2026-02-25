@@ -164,7 +164,7 @@ export default function PromptsPage() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6 pt-5 pb-6">
+    <div className="flex flex-col h-full overflow-hidden px-4 sm:px-6 pt-5 pb-6">
       {/* Header */}
       <div
         className="shrink-0 flex items-center justify-between mb-5"
@@ -394,7 +394,7 @@ function VersionsView({
 function TemplatesView({ templates }: { templates: TaskTemplate[] }) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {templates.map((t, i) => (
           <div
             key={t.name}

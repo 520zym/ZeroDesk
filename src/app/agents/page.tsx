@@ -66,7 +66,7 @@ export default function AgentsPage() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <div
-          className="shrink-0 px-6 pt-5 pb-4"
+          className="shrink-0 px-4 sm:px-6 pt-5 pb-4"
           style={{ animation: "fade-in 0.3s ease-out" }}
         >
           <div className="flex items-center justify-between">
@@ -87,8 +87,8 @@ export default function AgentsPage() {
         </div>
 
         {/* Agent Grid */}
-        <div className="flex-1 overflow-y-auto px-6 pt-2 pb-6">
-          <div className="grid grid-cols-3 gap-3.5">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-2 pb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
             {mockAgents.map((agent, i) => (
               <button
                 key={agent.id}

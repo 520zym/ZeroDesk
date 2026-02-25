@@ -20,7 +20,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6 pt-5 pb-6">
+    <div className="flex flex-col h-full overflow-hidden px-4 sm:px-6 pt-5 pb-6">
       <div
         className="shrink-0 mb-5"
         style={{ animation: "fade-in 0.3s ease-out" }}
@@ -29,7 +29,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[720px] space-y-6">
+        <div className="w-full max-w-3xl 2xl:max-w-4xl space-y-6">
           {/* General Settings */}
           <SettingsSection title="常规设置" delay={60}>
             <SettingsRow label="界面语言">
@@ -165,7 +165,7 @@ function SettingsSection({
 }) {
   return (
     <div
-      className="bg-surface border border-border-light rounded-xl p-5"
+      className="bg-surface border border-border-light rounded-xl p-4 sm:p-5"
       style={{ animation: `fade-in 0.3s ease-out ${delay}ms both` }}
     >
       <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border-light">
@@ -185,7 +185,7 @@ function SettingsRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
       <span className="text-[0.78rem] text-text-secondary">{label}</span>
       {children}
     </div>

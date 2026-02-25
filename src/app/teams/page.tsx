@@ -118,7 +118,7 @@ export default function TeamsPage() {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div
-        className="shrink-0 px-6 pt-5 pb-4"
+        className="shrink-0 px-4 sm:px-6 pt-5 pb-4"
         style={{ animation: "fade-in 0.3s ease-out" }}
       >
         <div className="flex items-center justify-between">
@@ -150,9 +150,9 @@ export default function TeamsPage() {
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto px-6 pt-2 pb-6 space-y-6">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 pt-2 pb-6 space-y-6">
         {/* Team Grid */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {mockTeams.map((team, i) => (
             <button
               key={team.id}

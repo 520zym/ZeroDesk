@@ -108,7 +108,7 @@ export default function KnowledgePage() {
   }, []);
 
   return (
-    <div className="flex h-full gap-5 overflow-hidden px-6 pt-5 pb-6">
+    <div className="flex h-full gap-5 overflow-hidden px-4 sm:px-6 pt-5 pb-6">
       {/* Left Panel: Document Tree */}
       <div
         className="w-[240px] shrink-0 bg-surface border border-border-light rounded-xl flex flex-col overflow-hidden"

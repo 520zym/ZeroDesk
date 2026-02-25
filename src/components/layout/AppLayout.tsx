@@ -34,7 +34,7 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0 h-screen">
         <Topbar title={title} />
         <main className="flex-1 overflow-y-auto">
-          <div className="p-6 max-w-[1400px]" style={{ animation: "fade-in 0.25s ease-out" }}>
+          <div className="p-4 sm:p-6" style={{ animation: "fade-in 0.25s ease-out" }}>
             <Outlet />
           </div>
         </main>

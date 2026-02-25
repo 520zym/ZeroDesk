@@ -59,7 +59,7 @@ export default function HistoryPage() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6 pt-5 pb-6">
+    <div className="flex flex-col h-full overflow-hidden px-4 sm:px-6 pt-5 pb-6">
       {/* Header */}
       <div
         className="shrink-0 flex items-center justify-between mb-5"
@@ -94,7 +94,7 @@ export default function HistoryPage() {
 
       {/* Stats */}
       <div
-        className="shrink-0 grid grid-cols-4 gap-4 mb-5"
+        className="shrink-0 grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5"
         style={{ animation: "fade-in 0.3s ease-out 60ms both" }}
       >
         <StatCard
