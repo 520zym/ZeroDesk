@@ -6,14 +6,12 @@ import {
   Plus,
   Copy,
   Trash2,
-  Pencil,
   Globe,
   FileText,
   Terminal,
   Sparkles,
   X,
   ChevronDown,
-  Clock,
   Cpu,
   Wrench,
   Loader2,
@@ -83,23 +81,6 @@ function parseSkillsJson(json: string | null): string[] {
   } catch {
     return [];
   }
-}
-
-function relativeTime(dateStr: string | null): string {
-  if (!dateStr) return "从未使用";
-  const date = new Date(dateStr + "Z");
-  const now = Date.now();
-  const diffMs = now - date.getTime();
-  if (diffMs < 0) return "刚刚";
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "刚刚";
-  if (mins < 60) return `${mins} 分钟前`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} 天前`;
-  const months = Math.floor(days / 30);
-  return `${months} 个月前`;
 }
 
 function getModelDisplay(
@@ -619,6 +600,24 @@ export default function AgentsPage() {
                       animation: `fade-in 0.35s ease-out ${i * 60}ms both`,
                     }}
                   >
+                    {/* Hover actions */}
+                    <div className="absolute top-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span
+                        title="复制"
+                        onClick={(e) => handleDuplicate(agent, e)}
+                        className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
+                      >
+                        <Copy size={13} />
+                      </span>
+                      <span
+                        title="删除"
+                        onClick={(e) => handleDelete(agent.id, e)}
+                        className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </span>
+                    </div>
+
                     {/* Top */}
                     <div className="flex items-start gap-3 mb-3">
                       <Avatar
@@ -626,7 +625,7 @@ export default function AgentsPage() {
                         color={agent.avatar_color ?? "bg-primary"}
                         size="lg"
                       />
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 pr-8">
                         <div className="text-[0.88rem] font-semibold text-text truncate">
                           {agent.name}
                         </div>
@@ -637,7 +636,7 @@ export default function AgentsPage() {
                     </div>
 
                     {/* Meta pills */}
-                    <div className="flex items-center gap-1.5 mb-2.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium",
@@ -653,45 +652,12 @@ export default function AgentsPage() {
                           {skills.length} Skills
                         </span>
                       )}
-                    </div>
-
-                    {/* Tools */}
-                    <div className="text-[0.72rem] text-text-muted mb-3 truncate">
-                      {toolLabels || "未启用工具"}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="flex items-center justify-between mt-auto pt-2.5 border-t border-border-light">
-                      <span className="inline-flex items-center gap-1 text-[0.7rem] text-text-muted">
-                        <Clock size={11} />
-                        {relativeTime(agent.last_used_at)}
-                      </span>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span
-                          title="编辑"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedId(agent.id);
-                          }}
-                          className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
-                        >
-                          <Pencil size={13} />
+                      {toolLabels && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-muted">
+                          <Terminal size={10} />
+                          {toolLabels}
                         </span>
-                        <span
-                          title="复制"
-                          onClick={(e) => handleDuplicate(agent, e)}
-                          className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors"
-                        >
-                          <Copy size={13} />
-                        </span>
-                        <span
-                          title="删除"
-                          onClick={(e) => handleDelete(agent.id, e)}
-                          className="w-6 h-6 inline-flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
-                        >
-                          <Trash2 size={13} />
-                        </span>
-                      </div>
+                      )}
                     </div>
                   </button>
                 );

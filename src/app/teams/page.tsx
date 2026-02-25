@@ -77,12 +77,6 @@ function skillVariant(index: number): string {
   return keys[index % keys.length];
 }
 
-function formatStats(taskCount: number | null, successRate: number | null): string {
-  const tc = taskCount ?? 0;
-  const sr = successRate ?? 0;
-  return `${tc} 次任务 · ${Math.round(sr * 100)}% 成功率`;
-}
-
 function agentChar(agent: Agent): string {
   return agent.avatar_char || agent.name.charAt(0);
 }
@@ -484,13 +478,13 @@ export default function TeamsPage() {
                       </div>
 
                       {/* Description */}
-                      <p className="text-[0.76rem] text-text-muted mb-4 line-clamp-2">
+                      <p className="text-[0.76rem] text-text-muted mb-3 line-clamp-2">
                         {team.description || "暂无描述"}
                       </p>
 
                       {/* Members */}
-                      {members.length > 0 && (
-                        <div className="flex items-center gap-3 mb-4">
+                      {members.length > 0 ? (
+                        <div className="flex items-center gap-3">
                           {members.slice(0, 5).map((m) => (
                             <div
                               key={m.id}
@@ -512,15 +506,15 @@ export default function TeamsPage() {
                             </span>
                           )}
                         </div>
+                      ) : (
+                        <p className="text-[0.72rem] text-text-muted/60">
+                          暂无成员
+                        </p>
                       )}
 
-                      {/* Stats + Skills */}
-                      <div className="flex items-center justify-between pt-3 border-t border-border-light">
-                        <span className="text-[0.72rem] text-text-muted flex items-center gap-1">
-                          <CheckCircle2 size={12} />
-                          {formatStats(team.task_count, team.success_rate)}
-                        </span>
-                        <div className="flex items-center gap-1">
+                      {/* Skills */}
+                      {skills.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap mt-3 pt-3 border-t border-border-light">
                           {skills.map((s, si) => (
                             <span
                               key={s}
@@ -534,7 +528,7 @@ export default function TeamsPage() {
                             </span>
                           ))}
                         </div>
-                      </div>
+                      )}
                     </div>
                   </button>
                 );
