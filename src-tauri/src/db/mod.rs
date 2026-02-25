@@ -12,6 +12,7 @@ const MIGRATION_004_SQL: &str = include_str!("migrations/004_skillsmp_api_key.sq
 const MIGRATION_005_SQL: &str = include_str!("migrations/005_system_model_assignments.sql");
 const MIGRATION_006_SQL: &str = include_str!("migrations/006_translation_task_key.sql");
 const MIGRATION_007_SQL: &str = include_str!("migrations/007_skill_source_external.sql");
+const MIGRATION_008_SQL: &str = include_str!("migrations/008_team_planning_task_key.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -32,7 +33,7 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
-    for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL, MIGRATION_004_SQL, MIGRATION_005_SQL, MIGRATION_006_SQL, MIGRATION_007_SQL] {
+    for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL, MIGRATION_004_SQL, MIGRATION_005_SQL, MIGRATION_006_SQL, MIGRATION_007_SQL, MIGRATION_008_SQL] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))

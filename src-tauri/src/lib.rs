@@ -63,6 +63,8 @@ pub fn run() {
             teams::get_team_members,
             teams::list_all_team_members,
             teams::delete_team,
+            teams::smart_plan_team,
+            teams::execute_team_plan,
             // models
             models_cmd::list_providers,
             models_cmd::create_provider,

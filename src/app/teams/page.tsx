@@ -13,6 +13,12 @@ import {
   Search,
   Sparkles,
   Package,
+  Wand2,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  Wrench,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, Modal } from "@/components/ui";
@@ -28,7 +34,8 @@ import {
 } from "@/hooks/useTeams";
 import { useAgents } from "@/hooks/useAgents";
 import { useSkills } from "@/hooks/useSkills";
-import type { Team, Agent, Skill } from "@/types";
+import { useSmartPlanTeam, useExecuteTeamPlan } from "@/hooks/useSmartTeam";
+import type { Team, Agent, Skill, AgentPlan, TeamPlan } from "@/types";
 
 const COLOR_OPTIONS = ["primary", "sage", "coral", "lavender", "sand"] as const;
 
@@ -116,6 +123,14 @@ export default function TeamsPage() {
   const deleteTeam = useDeleteTeam();
   const addMember = useAddTeamMember();
   const removeMember = useRemoveTeamMember();
+  const smartPlan = useSmartPlanTeam();
+  const executePlan = useExecuteTeamPlan();
+
+  const [smartOpen, setSmartOpen] = useState(false);
+  const [smartStep, setSmartStep] = useState<1 | 2>(1);
+  const [smartInput, setSmartInput] = useState("");
+  const [teamPlan, setTeamPlan] = useState<TeamPlan | null>(null);
+  const [expandedPrompts, setExpandedPrompts] = useState<Set<number>>(new Set());
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
 
@@ -256,6 +271,72 @@ export default function TeamsPage() {
     });
   }
 
+  const SCENARIO_TAGS = [
+    { label: "软件开发", prompt: "我需要一个软件开发团队，包含前端、后端、测试等角色，协作完成一个完整的软件项目" },
+    { label: "内容创作", prompt: "我需要一个内容创作团队，包含写作、编辑、SEO 优化等角色，协作生产高质量内容" },
+    { label: "数据分析", prompt: "我需要一个数据分析团队，包含数据采集、清洗、分析、可视化等角色" },
+    { label: "客户服务", prompt: "我需要一个客户服务团队，包含客服、问题分类、知识库管理等角色" },
+    { label: "学术研究", prompt: "我需要一个学术研究团队，包含文献检索、数据分析、论文撰写等角色" },
+    { label: "市场营销", prompt: "我需要一个市场营销团队，包含市场调研、策略制定、文案撰写、社交媒体运营等角色" },
+  ];
+
+  function resetSmartModal() {
+    setSmartStep(1);
+    setSmartInput("");
+    setTeamPlan(null);
+    setExpandedPrompts(new Set());
+  }
+
+  async function handleSmartGenerate() {
+    if (!smartInput.trim()) return;
+    try {
+      const plan = await smartPlan.mutateAsync({ userInput: smartInput.trim() });
+      setTeamPlan(plan);
+      setSmartStep(2);
+    } catch {
+      /* handled by RQ */
+    }
+  }
+
+  function updatePlanField<K extends keyof TeamPlan>(key: K, value: TeamPlan[K]) {
+    if (!teamPlan) return;
+    setTeamPlan({ ...teamPlan, [key]: value });
+  }
+
+  function updateAgentPlan(index: number, updates: Partial<AgentPlan>) {
+    if (!teamPlan) return;
+    const agents = [...teamPlan.agents];
+    agents[index] = { ...agents[index], ...updates };
+    setTeamPlan({ ...teamPlan, agents });
+  }
+
+  function removeAgentFromPlan(index: number) {
+    if (!teamPlan) return;
+    const agents = teamPlan.agents.filter((_, i) => i !== index);
+    setTeamPlan({ ...teamPlan, agents });
+  }
+
+  function togglePromptExpand(index: number) {
+    setExpandedPrompts((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  async function handleExecutePlan() {
+    if (!teamPlan) return;
+    try {
+      const team = await executePlan.mutateAsync({ plan: teamPlan });
+      setSelectedTeamId(team.id);
+      setSmartOpen(false);
+      resetSmartModal();
+    } catch {
+      /* handled by RQ */
+    }
+  }
+
   const filteredSkills = useMemo(() => {
     if (!skillSearch.trim()) return installedSkills;
     const q = skillSearch.toLowerCase();
@@ -278,6 +359,21 @@ export default function TeamsPage() {
             组织多个 Agent 为协作团队，定义分配与协作策略
           </p>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                resetSmartModal();
+                setSmartOpen(true);
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-4 py-2 rounded-lg",
+                "bg-gradient-to-r from-lavender to-primary text-white text-[0.8rem] font-medium",
+                "hover:opacity-90 active:opacity-80",
+                "transition-all cursor-pointer shadow-sm",
+              )}
+            >
+              <Wand2 size={15} strokeWidth={2.2} />
+              智能组建
+            </button>
             <button
               onClick={() => {
                 resetCreateForm();
@@ -1074,6 +1170,406 @@ export default function TeamsPage() {
             </div>
           </div>
         </div>
+      </Modal>
+
+      {/* Smart Create Team Modal */}
+      <Modal
+        open={smartOpen}
+        onClose={() => {
+          setSmartOpen(false);
+          resetSmartModal();
+        }}
+        title={smartStep === 1 ? "智能组建团队" : "团队方案预览"}
+        width={smartStep === 1 ? "560px" : "720px"}
+      >
+        {smartStep === 1 ? (
+          <div className="space-y-5">
+            <p className="text-[0.76rem] text-text-muted">
+              描述你想做什么事情，AI 将结合已有的 Agent 和 Skills 智能规划团队方案
+            </p>
+
+            <textarea
+              value={smartInput}
+              onChange={(e) => setSmartInput(e.target.value)}
+              rows={4}
+              placeholder="例如：我需要一个能帮我完成前端项目开发的团队，包括 UI 设计、前端开发、代码审查…"
+              className={cn(
+                "w-full rounded-lg border border-border-light bg-bg px-3 py-2.5",
+                "text-[0.82rem] text-text leading-relaxed resize-none placeholder:text-text-muted",
+                "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                "transition-colors",
+              )}
+            />
+
+            {/* Scenario quick tags */}
+            <div>
+              <label className="block text-[0.72rem] font-medium text-text-muted mb-2">
+                快速选择场景
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {SCENARIO_TAGS.map((tag) => (
+                  <button
+                    key={tag.label}
+                    onClick={() => setSmartInput(tag.prompt)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[0.74rem] font-medium border",
+                      "transition-all cursor-pointer",
+                      smartInput === tag.prompt
+                        ? "border-primary bg-primary-light text-primary-active"
+                        : "border-border-light bg-bg text-text-secondary hover:border-primary/40 hover:text-text",
+                    )}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {smartPlan.isError && (
+              <div className="rounded-lg bg-danger/10 border border-danger/20 px-3 py-2">
+                <p className="text-[0.76rem] text-danger">
+                  {String(smartPlan.error)}
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => {
+                  setSmartOpen(false);
+                  resetSmartModal();
+                }}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
+                  "text-text-secondary hover:text-text hover:bg-bg-alt",
+                  "transition-colors cursor-pointer",
+                )}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSmartGenerate}
+                disabled={!smartInput.trim() || smartPlan.isPending}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[0.8rem] font-medium",
+                  "bg-gradient-to-r from-lavender to-primary text-white",
+                  "hover:opacity-90 active:opacity-80",
+                  "transition-all cursor-pointer shadow-sm",
+                  (!smartInput.trim() || smartPlan.isPending) && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                {smartPlan.isPending ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    AI 规划中…
+                  </>
+                ) : (
+                  <>
+                    <Wand2 size={14} />
+                    生成方案
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : teamPlan ? (
+          <div className="space-y-5">
+            {/* Team basic info */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[0.72rem] font-medium text-text-muted mb-1">
+                  团队名称
+                </label>
+                <input
+                  type="text"
+                  value={teamPlan.team_name}
+                  onChange={(e) => updatePlanField("team_name", e.target.value)}
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
+                    "text-[0.82rem] text-text font-medium",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                    "transition-colors",
+                  )}
+                />
+              </div>
+              <div>
+                <label className="block text-[0.72rem] font-medium text-text-muted mb-1">
+                  团队描述
+                </label>
+                <textarea
+                  value={teamPlan.team_description}
+                  onChange={(e) => updatePlanField("team_description", e.target.value)}
+                  rows={2}
+                  className={cn(
+                    "w-full rounded-lg border border-border-light bg-bg px-3 py-2",
+                    "text-[0.78rem] text-text leading-relaxed resize-none",
+                    "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                    "transition-colors",
+                  )}
+                />
+              </div>
+              <div>
+                <label className="block text-[0.72rem] font-medium text-text-muted mb-1.5">
+                  主题色
+                </label>
+                <div className="flex items-center gap-2">
+                  {COLOR_OPTIONS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => updatePlanField("team_color", c)}
+                      className={cn(
+                        "w-7 h-7 rounded-full transition-all cursor-pointer",
+                        colorDotMap[c],
+                        teamPlan.team_color === c
+                          ? "ring-2 ring-offset-2 ring-primary scale-110"
+                          : "opacity-60 hover:opacity-100",
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Agents */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[0.78rem] font-semibold text-text">
+                  团队成员 ({teamPlan.agents.length} 个 Agent)
+                </h3>
+              </div>
+              <div className="space-y-2.5">
+                {teamPlan.agents.map((agent, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "rounded-xl border bg-bg/60 overflow-hidden",
+                      agent.is_existing ? "border-sage/40" : "border-primary/20",
+                    )}
+                  >
+                    <div className="flex items-start gap-3 px-4 py-3">
+                      <Avatar
+                        char={agent.avatar_char || agent.name.charAt(0)}
+                        color={agent.avatar_color || "bg-primary"}
+                        size="md"
+                      />
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={agent.name}
+                            onChange={(e) => updateAgentPlan(i, {
+                              name: e.target.value,
+                              avatar_char: e.target.value.charAt(0) || agent.avatar_char,
+                            })}
+                            className={cn(
+                              "flex-1 min-w-0 rounded-md border border-transparent bg-transparent px-1.5 py-0.5",
+                              "text-[0.82rem] font-semibold text-text",
+                              "hover:border-border-light focus:border-primary focus:outline-none",
+                              "transition-colors",
+                            )}
+                          />
+                          <span
+                            className={cn(
+                              "shrink-0 px-2 py-0.5 rounded-full text-[0.62rem] font-medium",
+                              agent.is_existing
+                                ? "bg-sage-light text-[#5a7a6b]"
+                                : "bg-primary-light text-primary-active",
+                            )}
+                          >
+                            {agent.is_existing ? "已有" : "新建"}
+                          </span>
+                          <button
+                            onClick={() => removeAgentFromPlan(i)}
+                            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-text-muted hover:text-danger hover:bg-danger/10 transition-colors cursor-pointer"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+
+                        <input
+                          type="text"
+                          value={agent.role_description}
+                          onChange={(e) => updateAgentPlan(i, { role_description: e.target.value })}
+                          className={cn(
+                            "w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5",
+                            "text-[0.74rem] text-text-secondary",
+                            "hover:border-border-light focus:border-primary focus:outline-none",
+                            "transition-colors",
+                          )}
+                        />
+
+                        {/* Skills + Tools tags */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {agent.skills.map((s, si) => (
+                            <span
+                              key={s}
+                              className={cn(
+                                "inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.65rem] font-medium",
+                                variantMap[skillVariant(si)] ?? "bg-bg-alt text-text-secondary",
+                              )}
+                            >
+                              <Sparkles size={9} />
+                              {s}
+                              <button
+                                onClick={() => {
+                                  const skills = agent.skills.filter((_, idx) => idx !== si);
+                                  updateAgentPlan(i, { skills });
+                                }}
+                                className="ml-0.5 w-3 h-3 rounded-full flex items-center justify-center hover:bg-black/10 cursor-pointer"
+                              >
+                                <X size={7} />
+                              </button>
+                            </span>
+                          ))}
+                          {agent.tools.map((t) => (
+                            <span
+                              key={t}
+                              className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.65rem] font-medium bg-bg-alt text-text-muted"
+                            >
+                              <Wrench size={9} />
+                              {t}
+                            </span>
+                          ))}
+                          {agent.model_name && (
+                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.65rem] font-medium bg-lavender-light text-[#6f5f80]">
+                              <Cpu size={9} />
+                              主: {agent.model_name}
+                            </span>
+                          )}
+                          {agent.fallback_model_name && (
+                            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.65rem] font-medium bg-sand-light text-[#8a7b55]">
+                              <Cpu size={9} />
+                              备: {agent.fallback_model_name}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Collapsible system_prompt */}
+                        <button
+                          onClick={() => togglePromptExpand(i)}
+                          className="inline-flex items-center gap-1 text-[0.68rem] text-text-muted hover:text-text transition-colors cursor-pointer"
+                        >
+                          {expandedPrompts.has(i) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          <Eye size={11} />
+                          System Prompt
+                        </button>
+                        {expandedPrompts.has(i) && (
+                          <textarea
+                            value={agent.system_prompt}
+                            onChange={(e) => updateAgentPlan(i, { system_prompt: e.target.value })}
+                            rows={5}
+                            className={cn(
+                              "w-full rounded-lg border border-border-light bg-surface px-3 py-2",
+                              "text-[0.72rem] text-text-secondary leading-relaxed resize-y font-mono",
+                              "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                              "transition-colors",
+                            )}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Shared Skills */}
+            {teamPlan.shared_skills.length > 0 && (
+              <div>
+                <h3 className="text-[0.72rem] font-medium text-text-muted mb-2">
+                  团队共享 Skills
+                </h3>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {teamPlan.shared_skills.map((s, si) => (
+                    <span
+                      key={s}
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[0.72rem] font-medium",
+                        variantMap[skillVariant(si)] ?? "bg-bg-alt text-text-secondary",
+                      )}
+                    >
+                      {s}
+                      <button
+                        onClick={() => {
+                          const skills = teamPlan.shared_skills.filter((_, idx) => idx !== si);
+                          updatePlanField("shared_skills", skills);
+                        }}
+                        className="w-3.5 h-3.5 rounded-full flex items-center justify-center hover:bg-black/10 transition-colors cursor-pointer"
+                      >
+                        <X size={8} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {executePlan.isError && (
+              <div className="rounded-lg bg-danger/10 border border-danger/20 px-3 py-2">
+                <p className="text-[0.76rem] text-danger">
+                  {String(executePlan.error)}
+                </p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-border-light/60">
+              <button
+                onClick={() => {
+                  setSmartStep(1);
+                  setTeamPlan(null);
+                  setExpandedPrompts(new Set());
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[0.78rem] font-medium",
+                  "text-text-secondary hover:text-text hover:bg-bg-alt",
+                  "transition-colors cursor-pointer",
+                )}
+              >
+                <RefreshCw size={13} />
+                重新生成
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setSmartOpen(false);
+                    resetSmartModal();
+                  }}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-[0.8rem] font-medium",
+                    "text-text-secondary hover:text-text hover:bg-bg-alt",
+                    "transition-colors cursor-pointer",
+                  )}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleExecutePlan}
+                  disabled={executePlan.isPending || teamPlan.agents.length === 0}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-[0.8rem] font-medium",
+                    "bg-primary text-white",
+                    "hover:bg-primary-hover active:bg-primary-active",
+                    "transition-colors cursor-pointer shadow-sm",
+                    (executePlan.isPending || teamPlan.agents.length === 0) && "opacity-50 cursor-not-allowed",
+                  )}
+                >
+                  {executePlan.isPending ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      创建中…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} />
+                      确认创建
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

@@ -76,6 +76,32 @@ export interface TeamMember {
   agent_id: string;
 }
 
+// ─── Smart Team Planning ─────────────────────────────────────
+
+export interface AgentPlan {
+  name: string;
+  avatar_char: string;
+  avatar_color: string;
+  role_description: string;
+  system_prompt: string;
+  tools: string[];
+  skills: string[];
+  model_id: string | null;
+  model_name: string | null;
+  fallback_model_id: string | null;
+  fallback_model_name: string | null;
+  is_existing: boolean;
+  existing_agent_id: string | null;
+}
+
+export interface TeamPlan {
+  team_name: string;
+  team_description: string;
+  team_color: string;
+  agents: AgentPlan[];
+  shared_skills: string[];
+}
+
 // ─── Model ───────────────────────────────────────────────────
 
 export interface TestConnectionResult {

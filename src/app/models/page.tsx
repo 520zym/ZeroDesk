@@ -24,6 +24,7 @@ import {
   Check,
   X,
   Download,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressBar, Modal, Toggle } from "@/components/ui";
@@ -142,6 +143,12 @@ const SYSTEM_MODEL_TASKS = [
     label: "翻译",
     desc: "Skills 市场搜索时将中文翻译为英文",
     icon: Globe,
+  },
+  {
+    id: "team_planning",
+    label: "团队智能规划",
+    desc: "根据用户需求智能规划 Agent 团队方案",
+    icon: Users,
   },
 ];
 
