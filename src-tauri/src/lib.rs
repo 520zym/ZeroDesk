@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod engine;
 mod models;
 
 use std::path::PathBuf;
@@ -58,6 +59,10 @@ pub fn run() {
             tasks::list_task_step_summaries,
             tasks::initialize_task_from_team,
             tasks::smart_plan_task,
+            tasks::start_task_execution,
+            tasks::list_task_runs,
+            tasks::list_all_latest_task_runs,
+            tasks::rerun_task,
             // agents
             agents::list_agents,
             agents::get_agent,

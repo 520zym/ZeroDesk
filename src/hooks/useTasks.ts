@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
-import type { Task, TaskStats, TaskStep, TaskStepSummary, ExecutionMessage } from "@/types";
+import type { Task, TaskRun, TaskStats, TaskStep, TaskStepSummary, ExecutionMessage } from "@/types";
 
 export function useTasks() {
   return useQuery({
@@ -40,10 +40,31 @@ export function useTaskStepSummaries() {
   });
 }
 
-export function useTaskSteps(taskId: string | undefined) {
+export function useLatestTaskRuns() {
   return useQuery({
-    queryKey: ["task-steps", taskId],
-    queryFn: () => tauriInvoke<TaskStep[]>("list_task_steps", { taskId }),
+    queryKey: ["latest-task-runs"],
+    queryFn: () => tauriInvoke<TaskRun[]>("list_all_latest_task_runs"),
+    refetchInterval: 5000,
+  });
+}
+
+export function useTaskRuns(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["task-runs", taskId],
+    queryFn: () => tauriInvoke<TaskRun[]>("list_task_runs", { taskId }),
+    enabled: !!taskId,
+    refetchInterval: 5000,
+  });
+}
+
+export function useTaskSteps(taskId: string | undefined, runId?: string | null) {
+  return useQuery({
+    queryKey: ["task-steps", taskId, runId ?? "all"],
+    queryFn: () =>
+      tauriInvoke<TaskStep[]>("list_task_steps", {
+        taskId,
+        ...(runId ? { runId } : {}),
+      }),
     enabled: !!taskId,
     refetchInterval: 3000,
   });
@@ -51,12 +72,16 @@ export function useTaskSteps(taskId: string | undefined) {
 
 export function useExecutionMessages(
   taskId: string | undefined,
-  options?: { refetchInterval?: number },
+  options?: { refetchInterval?: number; runId?: string | null },
 ) {
+  const runId = options?.runId;
   return useQuery({
-    queryKey: ["execution-messages", taskId],
+    queryKey: ["execution-messages", taskId, runId ?? "all"],
     queryFn: () =>
-      tauriInvoke<ExecutionMessage[]>("list_execution_messages", { taskId }),
+      tauriInvoke<ExecutionMessage[]>("list_execution_messages", {
+        taskId,
+        ...(runId ? { runId } : {}),
+      }),
     enabled: !!taskId,
     refetchInterval: options?.refetchInterval ?? 2000,
   });
@@ -225,6 +250,42 @@ export function useInitializeTaskFromTeam() {
       qc.invalidateQueries({ queryKey: ["task", variables.taskId] });
       qc.invalidateQueries({ queryKey: ["agents"] });
       qc.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+}
+
+export function useStartTaskExecution() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskId: string }) =>
+      tauriInvoke<void>("start_task_execution", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-stats"] });
+      qc.invalidateQueries({ queryKey: ["task"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "running"] });
+      qc.invalidateQueries({ queryKey: ["task-runs"] });
+    },
+  });
+}
+
+export function useRerunTask() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskId: string }) =>
+      tauriInvoke<TaskRun>("rerun_task", params),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["task-stats"] });
+      qc.invalidateQueries({ queryKey: ["task"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "running"] });
+      qc.invalidateQueries({ queryKey: ["task-runs"] });
+      qc.invalidateQueries({ queryKey: ["task-steps"] });
+      qc.invalidateQueries({ queryKey: ["execution-messages"] });
+      qc.invalidateQueries({ queryKey: ["history-tasks"] });
+      qc.invalidateQueries({ queryKey: ["history-stats"] });
     },
   });
 }

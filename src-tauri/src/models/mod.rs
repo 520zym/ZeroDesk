@@ -34,6 +34,19 @@ pub struct Task {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TaskRun {
+    pub id: String,
+    pub task_id: String,
+    pub run_number: i64,
+    pub status: String,
+    pub total_tokens: Option<i64>,
+    pub total_cost: Option<f64>,
+    pub progress: Option<i64>,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct TaskStep {
     pub id: String,
     pub task_id: String,
@@ -45,6 +58,7 @@ pub struct TaskStep {
     pub status: Option<String>,
     pub tokens_used: Option<i64>,
     pub duration_seconds: Option<f64>,
+    pub run_id: Option<String>,
     pub created_at: String,
 }
 
@@ -217,6 +231,7 @@ pub struct ExecutionMessage {
     pub content: String,
     pub content_type: Option<String>,
     pub metadata_json: Option<String>,
+    pub run_id: Option<String>,
     pub created_at: String,
 }
 

@@ -24,7 +24,7 @@ import {
 import { StatCard, Badge, Tabs, Modal, ProgressBar, EmptyState, AvatarStack } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { useTasks, useTaskStats, useCreateTask, useDeleteTask, useTaskStepSummaries } from "@/hooks/useTasks";
+import { useTasks, useTaskStats, useCreateTask, useDeleteTask, useTaskStepSummaries, useLatestTaskRuns } from "@/hooks/useTasks";
 import { useTeams, useAllTeamMembers } from "@/hooks/useTeams";
 import { useAgents } from "@/hooks/useAgents";
 import type { Task } from "@/types";
@@ -134,6 +134,7 @@ export default function TasksPage() {
   const [retryPolicy, setRetryPolicy] = useState("auto_2");
   const [overBudgetPolicy, setOverBudgetPolicy] = useState("pause");
   const [timeoutMinutes, setTimeoutMinutes] = useState(30);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const { data: tasks, isLoading: tasksLoading, error: tasksError } = useTasks();
   const { data: stats, isLoading: statsLoading } = useTaskStats();
@@ -141,6 +142,7 @@ export default function TasksPage() {
   const { data: allMembers = [] } = useAllTeamMembers();
   const { data: allAgents = [] } = useAgents();
   const { data: stepSummaries = [] } = useTaskStepSummaries();
+  const { data: latestRuns = [] } = useLatestTaskRuns();
   const createTask = useCreateTask();
   const deleteTask = useDeleteTask();
 
@@ -173,6 +175,11 @@ export default function TasksPage() {
   const stepSummaryMap = useMemo(
     () => new Map(stepSummaries.map((s) => [s.task_id, s])),
     [stepSummaries],
+  );
+
+  const latestRunMap = useMemo(
+    () => new Map(latestRuns.map((r) => [r.task_id, r])),
+    [latestRuns],
   );
 
   const teamNameMap = useMemo(
@@ -396,40 +403,54 @@ export default function TasksPage() {
                     {COST_TIER_LABELS[task.cost_tier] ?? task.cost_tier}
                   </span>
                 )}
-                {(task.total_tokens ?? 0) > 0 && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-sand-light text-sand">
-                    {formatTokens(task.total_tokens!)} tok
-                  </span>
-                )}
-                {(task.total_cost ?? 0) > 0 && (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-coral/10 text-coral">
-                    ${task.total_cost!.toFixed(3)}
-                  </span>
-                )}
+                {(() => {
+                  const run = latestRunMap.get(task.id);
+                  const tokens = run?.total_tokens ?? task.total_tokens ?? 0;
+                  const cost = run?.total_cost ?? task.total_cost ?? 0;
+                  return (
+                    <>
+                      {tokens > 0 && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-sand-light text-sand">
+                          {formatTokens(tokens)} tokens
+                        </span>
+                      )}
+                      {cost > 0 && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-coral/10 text-coral">
+                          ¥{cost.toFixed(3)}
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Footer row */}
               <div className="flex items-center justify-between">
                 <span className="text-[0.68rem] text-text-muted">
-                  {task.status === "completed" && task.completed_at
-                    ? `耗时 ${formatDuration(task.created_at, task.completed_at)}`
-                    : task.status === "running" && task.timeout_minutes && task.timeout_minutes > 0
-                      ? `超时 ${task.timeout_minutes} 分钟`
-                      : formatRelativeTime(task.updated_at)}
+                  {(() => {
+                    const run = latestRunMap.get(task.id);
+                    if (task.status === "completed" || (run && run.status === "completed")) {
+                      const startIso = run?.started_at ?? task.created_at;
+                      const endIso = run?.completed_at ?? task.completed_at;
+                      if (endIso) return `耗时 ${formatDuration(startIso, endIso)}`;
+                    }
+                    if (task.status === "running" && task.timeout_minutes && task.timeout_minutes > 0) {
+                      return `超时 ${task.timeout_minutes} 分钟`;
+                    }
+                    return formatRelativeTime(task.updated_at);
+                  })()}
                 </span>
                 <div className="flex items-center gap-1.5">
-                  {task.status !== "running" && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteTask.mutate(task.id);
-                      }}
-                      className="w-6 h-6 rounded-md flex items-center justify-center text-text-muted opacity-0 group-hover:opacity-100 hover:bg-danger-light hover:text-danger transition-all cursor-pointer"
-                      title="删除任务"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmId(task.id);
+                    }}
+                    className="w-6 h-6 rounded-md flex items-center justify-center text-text-muted/60 hover:bg-danger-light hover:text-danger transition-all cursor-pointer"
+                    title="删除任务"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -668,6 +689,34 @@ export default function TasksPage() {
               创建失败：{String(createTask.error)}
             </p>
           )}
+        </div>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal open={!!deleteConfirmId} onClose={() => setDeleteConfirmId(null)} title="确认删除">
+        <div>
+          <p className="text-[0.82rem] text-text-secondary mb-5">
+            确定要删除该任务吗？关联的执行记录也会一并删除，此操作不可恢复。
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setDeleteConfirmId(null)}
+              className="px-4 py-2 rounded-lg text-[0.82rem] font-medium text-text-secondary bg-surface border border-border-light hover:bg-bg-alt transition-colors cursor-pointer"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                if (deleteConfirmId) {
+                  deleteTask.mutate(deleteConfirmId);
+                  setDeleteConfirmId(null);
+                }
+              }}
+              className="px-4 py-2 rounded-lg text-[0.82rem] font-medium text-white bg-danger hover:bg-danger/90 transition-colors cursor-pointer"
+            >
+              确认删除
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

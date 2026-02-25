@@ -22,7 +22,7 @@ import { StatCard, Badge, EmptyState } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { useHistoryStats, useHistoryTasks } from "@/hooks/useDashboard";
 import { useTeams } from "@/hooks/useTeams";
-import { useUpdateTaskStatus } from "@/hooks/useTasks";
+import { useRerunTask, useTaskRuns } from "@/hooks/useTasks";
 import type { Task, Team } from "@/types";
 
 const statusLabels: Record<string, string> = {
@@ -47,18 +47,18 @@ function computeDurationSeconds(
 ): number {
   if (!completedAt) return 0;
   return (
-    (new Date(completedAt).getTime() - new Date(createdAt).getTime()) / 1000
+    (new Date(completedAt + "Z").getTime() - new Date(createdAt + "Z").getTime()) / 1000
   );
 }
 
 function isToday(iso: string): boolean {
-  const d = new Date(iso);
+  const d = new Date(iso + "Z");
   const now = new Date();
   return d.toDateString() === now.toDateString();
 }
 
 function isThisWeek(iso: string): boolean {
-  const d = new Date(iso);
+  const d = new Date(iso + "Z");
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(
@@ -69,7 +69,7 @@ function isThisWeek(iso: string): boolean {
 }
 
 function isThisMonth(iso: string): boolean {
-  const d = new Date(iso);
+  const d = new Date(iso + "Z");
   const now = new Date();
   return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
 }
@@ -101,7 +101,8 @@ export default function HistoryPage() {
       : undefined
   );
   const { data: teams } = useTeams();
-  const updateTaskStatus = useUpdateTaskStatus();
+  const rerunTask = useRerunTask();
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   const filteredTasks = useMemo(() => {
     if (!tasks) return [];
@@ -128,12 +129,12 @@ export default function HistoryPage() {
 
   const handleRerun = useCallback(
     (task: Task) => {
-      updateTaskStatus.mutate(
-        { taskId: task.id, status: "running" },
+      rerunTask.mutate(
+        { taskId: task.id },
         { onSuccess: () => navigate(`/tasks/${task.id}/console`) }
       );
     },
-    [updateTaskStatus, navigate]
+    [rerunTask, navigate]
   );
 
   const statsValue = (v: string | undefined, fallback = "0") => v ?? fallback;
@@ -331,109 +332,18 @@ export default function HistoryPage() {
               </thead>
               <tbody>
                 {filteredTasks.map((task, i) => (
-                  <>
-                    <tr
-                      key={task.id}
-                      className={cn(
-                        "border-b border-border-light transition-colors",
-                        task.status === "failed"
-                          ? "bg-danger-light/30"
-                          : "hover:bg-bg-alt/30"
-                      )}
-                      style={{
-                        animation: `fade-in 0.3s ease-out ${180 + i * 50}ms both`,
-                      }}
-                    >
-                      <td className="px-4 py-3">
-                        <span className="text-[0.78rem] font-medium text-text">
-                          {task.title}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[0.75rem] text-text-secondary">
-                          {getTeamName(task.team_id, teams)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={task.status as BadgeVariant}>
-                          {statusLabels[task.status] || task.status}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[0.75rem] text-text-secondary font-mono">
-                          {task.progress != null ? `${task.progress}%` : "—"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[0.75rem] text-text-secondary font-mono">
-                          {task.total_tokens?.toLocaleString() ?? "0"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[0.75rem] text-text-secondary">
-                          {formatDuration(
-                            computeDurationSeconds(
-                              task.created_at,
-                              task.completed_at
-                            )
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[0.72rem] text-text-muted">
-                          {formatRelativeTime(task.updated_at)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() =>
-                              navigate(`/tasks/${task.id}/console`)
-                            }
-                            className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer"
-                          >
-                            <ExternalLink size={11} />
-                            详情
-                          </button>
-                          {task.status === "failed" ? (
-                            <button
-                              onClick={() => toggleReview(task.id)}
-                              className={cn(
-                                "inline-flex items-center gap-1 text-[0.72rem] font-medium transition-colors cursor-pointer",
-                                reviewingId === task.id
-                                  ? "text-danger"
-                                  : "text-danger hover:text-danger"
-                              )}
-                            >
-                              <FileSearch size={11} />
-                              复盘
-                            </button>
-                          ) : task.status === "completed" ? (
-                            <button
-                              onClick={() => handleRerun(task)}
-                              className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-sage hover:text-sage transition-colors cursor-pointer"
-                            >
-                              <RotateCcw size={11} />
-                              重新执行
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                    {reviewingId === task.id && task.status === "failed" && (
-                      <tr key={`${task.id}-review`}>
-                        <td colSpan={8} className="p-0">
-                          <FailureReviewPanel
-                            task={task}
-                            onClose={() => setReviewingId(null)}
-                            onNavigate={() =>
-                              navigate(`/tasks/${task.id}/console`)
-                            }
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </>
+                  <TaskHistoryRow
+                    key={task.id}
+                    task={task}
+                    index={i}
+                    teams={teams}
+                    reviewingId={reviewingId}
+                    expandedTaskId={expandedTaskId}
+                    onToggleReview={toggleReview}
+                    onToggleExpand={(id) => setExpandedTaskId((prev) => (prev === id ? null : id))}
+                    onRerun={handleRerun}
+                    onNavigate={navigate}
+                  />
                 ))}
               </tbody>
             </table>
@@ -441,6 +351,175 @@ export default function HistoryPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function TaskHistoryRow({
+  task,
+  index,
+  teams,
+  reviewingId,
+  expandedTaskId,
+  onToggleReview,
+  onToggleExpand,
+  onRerun,
+  onNavigate,
+}: {
+  task: Task;
+  index: number;
+  teams: Team[] | undefined;
+  reviewingId: string | null;
+  expandedTaskId: string | null;
+  onToggleReview: (id: string) => void;
+  onToggleExpand: (id: string) => void;
+  onRerun: (task: Task) => void;
+  onNavigate: (path: string) => void;
+}) {
+  const { data: taskRuns } = useTaskRuns(
+    expandedTaskId === task.id ? task.id : undefined
+  );
+  const hasMultipleRuns = (taskRuns?.length ?? 0) > 1;
+  const isExpanded = expandedTaskId === task.id;
+
+  return (
+    <>
+      <tr
+        className={cn(
+          "border-b border-border-light transition-colors",
+          task.status === "failed" ? "bg-danger-light/30" : "hover:bg-bg-alt/30"
+        )}
+        style={{ animation: `fade-in 0.3s ease-out ${180 + index * 50}ms both` }}
+      >
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[0.78rem] font-medium text-text">{task.title}</span>
+            {(hasMultipleRuns || true) && (
+              <button
+                onClick={() => onToggleExpand(task.id)}
+                className="text-[0.62rem] text-text-muted hover:text-primary transition-colors cursor-pointer"
+                title="展开执行版本"
+              >
+                <ChevronDown
+                  size={12}
+                  className={cn("transition-transform", isExpanded && "rotate-180")}
+                />
+              </button>
+            )}
+          </div>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-[0.75rem] text-text-secondary">
+            {getTeamName(task.team_id, teams)}
+          </span>
+        </td>
+        <td className="px-4 py-3">
+          <Badge variant={task.status as BadgeVariant}>
+            {statusLabels[task.status] || task.status}
+          </Badge>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-[0.75rem] text-text-secondary font-mono">
+            {task.progress != null ? `${task.progress}%` : "—"}
+          </span>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-[0.75rem] text-text-secondary font-mono">
+            {task.total_tokens?.toLocaleString() ?? "0"}
+          </span>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-[0.75rem] text-text-secondary">
+            {formatDuration(computeDurationSeconds(task.created_at, task.completed_at))}
+          </span>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-[0.72rem] text-text-muted">
+            {formatRelativeTime(task.updated_at)}
+          </span>
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigate(`/tasks/${task.id}/console`)}
+              className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer"
+            >
+              <ExternalLink size={11} />
+              详情
+            </button>
+            {task.status === "failed" ? (
+              <button
+                onClick={() => onToggleReview(task.id)}
+                className={cn(
+                  "inline-flex items-center gap-1 text-[0.72rem] font-medium transition-colors cursor-pointer",
+                  reviewingId === task.id ? "text-danger" : "text-danger hover:text-danger"
+                )}
+              >
+                <FileSearch size={11} />
+                复盘
+              </button>
+            ) : task.status === "completed" ? (
+              <button
+                onClick={() => onRerun(task)}
+                className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-sage hover:text-sage transition-colors cursor-pointer"
+              >
+                <RotateCcw size={11} />
+                重新执行
+              </button>
+            ) : null}
+          </div>
+        </td>
+      </tr>
+      {isExpanded && taskRuns && taskRuns.length > 0 && (
+        <tr>
+          <td colSpan={8} className="p-0">
+            <div className="bg-bg-alt/30 border-b border-border-light">
+              {taskRuns.map((run) => {
+                const runStart = new Date(run.started_at.endsWith("Z") ? run.started_at : run.started_at + "Z");
+                const runEnd = run.completed_at
+                  ? new Date(run.completed_at.endsWith("Z") ? run.completed_at : run.completed_at + "Z")
+                  : null;
+                const durationSec = runEnd ? (runEnd.getTime() - runStart.getTime()) / 1000 : 0;
+                return (
+                  <div
+                    key={run.id}
+                    className="flex items-center gap-4 px-8 py-2.5 border-b border-border-light/50 last:border-b-0 hover:bg-bg-alt/50 transition-colors"
+                  >
+                    <span className="text-[0.72rem] font-medium text-primary w-8">v{run.run_number}</span>
+                    <Badge variant={run.status as BadgeVariant}>
+                      {statusLabels[run.status] || run.status}
+                    </Badge>
+                    <span className="text-[0.7rem] text-text-secondary font-mono">{run.progress ?? 0}%</span>
+                    <span className="text-[0.7rem] text-text-secondary font-mono">{(run.total_tokens ?? 0).toLocaleString()} tokens</span>
+                    <span className="text-[0.7rem] text-text-secondary">{formatDuration(durationSec)}</span>
+                    <span className="text-[0.65rem] text-text-muted">
+                      {runStart.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </span>
+                    <button
+                      onClick={() => onNavigate(`/tasks/${task.id}/console`)}
+                      className="ml-auto inline-flex items-center gap-1 text-[0.68rem] font-medium text-primary hover:text-primary-hover transition-colors cursor-pointer"
+                    >
+                      <ExternalLink size={10} />
+                      查看
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </td>
+        </tr>
+      )}
+      {reviewingId === task.id && task.status === "failed" && (
+        <tr>
+          <td colSpan={8} className="p-0">
+            <FailureReviewPanel
+              task={task}
+              onClose={() => onToggleReview(task.id)}
+              onNavigate={() => onNavigate(`/tasks/${task.id}/console`)}
+            />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

@@ -22,6 +22,18 @@ export interface Task {
   completed_at: string | null;
 }
 
+export interface TaskRun {
+  id: string;
+  task_id: string;
+  run_number: number;
+  status: string;
+  total_tokens: number | null;
+  total_cost: number | null;
+  progress: number | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
 export interface TaskStep {
   id: string;
   task_id: string;
@@ -33,6 +45,7 @@ export interface TaskStep {
   status: string | null;
   tokens_used: number | null;
   duration_seconds: number | null;
+  run_id: string | null;
   created_at: string;
 }
 
@@ -260,6 +273,7 @@ export interface ExecutionMessage {
   content: string;
   content_type: string | null;
   metadata_json: string | null;
+  run_id: string | null;
   created_at: string;
 }
 

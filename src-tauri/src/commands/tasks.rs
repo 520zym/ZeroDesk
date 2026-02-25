@@ -2,7 +2,7 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::db::DEFAULT_WORKSPACE_ID;
-use crate::models::{Agent, ExecutionMessage, Task, TaskStats, TaskStep, TaskStepSummary};
+use crate::models::{Agent, ExecutionMessage, Task, TaskRun, TaskStats, TaskStep, TaskStepSummary};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct TaskPlanStep {
@@ -196,14 +196,26 @@ pub async fn get_task_stats(
 pub async fn list_task_steps(
     pool: State<'_, SqlitePool>,
     task_id: String,
+    run_id: Option<String>,
 ) -> Result<Vec<TaskStep>, String> {
-    sqlx::query_as::<_, TaskStep>(
-        "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
-    )
-    .bind(&task_id)
-    .fetch_all(pool.inner())
-    .await
-    .map_err(|e| e.to_string())
+    if let Some(rid) = run_id {
+        sqlx::query_as::<_, TaskStep>(
+            "SELECT * FROM task_steps WHERE task_id = ?1 AND run_id = ?2 ORDER BY step_order ASC",
+        )
+        .bind(&task_id)
+        .bind(&rid)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
+    } else {
+        sqlx::query_as::<_, TaskStep>(
+            "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
+        )
+        .bind(&task_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -243,14 +255,26 @@ pub async fn create_task_step(
 pub async fn list_execution_messages(
     pool: State<'_, SqlitePool>,
     task_id: String,
+    run_id: Option<String>,
 ) -> Result<Vec<ExecutionMessage>, String> {
-    sqlx::query_as::<_, ExecutionMessage>(
-        "SELECT * FROM execution_messages WHERE task_id = ?1 ORDER BY created_at ASC",
-    )
-    .bind(&task_id)
-    .fetch_all(pool.inner())
-    .await
-    .map_err(|e| e.to_string())
+    if let Some(rid) = run_id {
+        sqlx::query_as::<_, ExecutionMessage>(
+            "SELECT * FROM execution_messages WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at ASC",
+        )
+        .bind(&task_id)
+        .bind(&rid)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
+    } else {
+        sqlx::query_as::<_, ExecutionMessage>(
+            "SELECT * FROM execution_messages WHERE task_id = ?1 ORDER BY created_at ASC",
+        )
+        .bind(&task_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -509,6 +533,247 @@ pub async fn initialize_task_from_team(
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn start_task_execution(
+    app: tauri::AppHandle,
+    pool: State<'_, SqlitePool>,
+    task_id: String,
+) -> Result<(), String> {
+    let task: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?1")
+        .bind(&task_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| format!("任务不存在: {}", e))?;
+
+    if task.status == "running" {
+        return Err("任务已在执行中".into());
+    }
+
+    let step_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM task_steps WHERE task_id = ?1")
+            .bind(&task_id)
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+
+    if step_count.0 == 0 {
+        return Err("任务没有执行步骤，请先规划任务".into());
+    }
+
+    // Ensure a run exists; create run_number=1 if none
+    let existing_run: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM task_runs WHERE task_id = ?1 ORDER BY run_number DESC LIMIT 1",
+    )
+    .bind(&task_id)
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let run_id = if let Some((rid,)) = existing_run {
+        // Update the existing run status back to running (for resume)
+        sqlx::query("UPDATE task_runs SET status = 'running' WHERE id = ?1")
+            .bind(&rid)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+        rid
+    } else {
+        let rid = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO task_runs (id, task_id, run_number, status) VALUES (?1, ?2, 1, 'running')",
+        )
+        .bind(&rid)
+        .bind(&task_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+        // Link orphan steps (those without run_id) to this run
+        sqlx::query("UPDATE task_steps SET run_id = ?1 WHERE task_id = ?2 AND run_id IS NULL")
+            .bind(&rid)
+            .bind(&task_id)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+        rid
+    };
+
+    sqlx::query("UPDATE tasks SET status = 'running', updated_at = datetime('now') WHERE id = ?1")
+        .bind(&task_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let pool_clone = pool.inner().clone();
+    let task_id_clone = task_id.clone();
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) =
+            crate::engine::run_task(app, pool_clone.clone(), task_id_clone.clone(), Some(run_id)).await
+        {
+            tracing::error!("Task {} execution failed: {}", task_id_clone, e);
+            let _ = sqlx::query(
+                "UPDATE tasks SET status = CASE WHEN status = 'running' THEN 'failed' ELSE status END, updated_at = datetime('now') WHERE id = ?1",
+            )
+            .bind(&task_id_clone)
+            .execute(&pool_clone)
+            .await;
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_task_runs(
+    pool: State<'_, SqlitePool>,
+    task_id: String,
+) -> Result<Vec<TaskRun>, String> {
+    sqlx::query_as::<_, TaskRun>(
+        "SELECT * FROM task_runs WHERE task_id = ?1 ORDER BY run_number ASC",
+    )
+    .bind(&task_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_all_latest_task_runs(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<TaskRun>, String> {
+    sqlx::query_as::<_, TaskRun>(
+        "SELECT tr.* FROM task_runs tr \
+         INNER JOIN (SELECT task_id, MAX(run_number) as max_run FROM task_runs GROUP BY task_id) latest \
+         ON tr.task_id = latest.task_id AND tr.run_number = latest.max_run \
+         ORDER BY tr.started_at DESC",
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rerun_task(
+    app: tauri::AppHandle,
+    pool: State<'_, SqlitePool>,
+    task_id: String,
+) -> Result<TaskRun, String> {
+    let task: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?1")
+        .bind(&task_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| format!("任务不存在: {}", e))?;
+
+    if task.status == "running" {
+        return Err("任务正在执行中，无法重新执行".into());
+    }
+
+    let max_run: (i64,) = sqlx::query_as(
+        "SELECT COALESCE(MAX(run_number), 0) FROM task_runs WHERE task_id = ?1",
+    )
+    .bind(&task_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let new_run_number = max_run.0 + 1;
+    let run_id = uuid::Uuid::new_v4().to_string();
+
+    sqlx::query(
+        "INSERT INTO task_runs (id, task_id, run_number, status, total_tokens, total_cost, progress) \
+         VALUES (?1, ?2, ?3, 'running', 0, 0, 0)",
+    )
+    .bind(&run_id)
+    .bind(&task_id)
+    .bind(new_run_number)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let latest_run_id: Option<(String,)> = sqlx::query_as(
+        "SELECT id FROM task_runs WHERE task_id = ?1 AND run_number = ?2",
+    )
+    .bind(&task_id)
+    .bind(max_run.0.max(1))
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let source_steps: Vec<TaskStep> = if let Some((prev_run_id,)) = latest_run_id {
+        sqlx::query_as::<_, TaskStep>(
+            "SELECT * FROM task_steps WHERE task_id = ?1 AND run_id = ?2 ORDER BY step_order ASC",
+        )
+        .bind(&task_id)
+        .bind(&prev_run_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?
+    } else {
+        sqlx::query_as::<_, TaskStep>(
+            "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
+        )
+        .bind(&task_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?
+    };
+
+    if source_steps.is_empty() {
+        return Err("任务没有执行步骤，请先规划任务".into());
+    }
+
+    for step in &source_steps {
+        let new_step_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO task_steps (id, task_id, step_order, name, description, agent_id, output_target, status, run_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', ?8)",
+        )
+        .bind(&new_step_id)
+        .bind(&task_id)
+        .bind(step.step_order)
+        .bind(&step.name)
+        .bind(&step.description)
+        .bind(&step.agent_id)
+        .bind(&step.output_target)
+        .bind(&run_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    sqlx::query(
+        "UPDATE tasks SET status = 'running', progress = 0, total_tokens = 0, total_cost = 0, completed_at = NULL, updated_at = datetime('now') WHERE id = ?1",
+    )
+    .bind(&task_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let pool_clone = pool.inner().clone();
+    let task_id_clone = task_id.clone();
+    let run_id_clone = run_id.clone();
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) =
+            crate::engine::run_task(app, pool_clone.clone(), task_id_clone.clone(), Some(run_id_clone)).await
+        {
+            tracing::error!("Task {} rerun failed: {}", task_id_clone, e);
+            let _ = sqlx::query(
+                "UPDATE tasks SET status = CASE WHEN status = 'running' THEN 'failed' ELSE status END, updated_at = datetime('now') WHERE id = ?1",
+            )
+            .bind(&task_id_clone)
+            .execute(&pool_clone)
+            .await;
+        }
+    });
+
+    sqlx::query_as::<_, TaskRun>("SELECT * FROM task_runs WHERE id = ?1")
+        .bind(&run_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

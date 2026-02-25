@@ -7,7 +7,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatRelativeTime(iso: string): string {
   const now = Date.now();
-  const then = new Date(iso).getTime();
+  const then = new Date(iso.endsWith("Z") ? iso : iso + "Z").getTime();
   const diff = now - then;
 
   if (Number.isNaN(diff)) return iso;

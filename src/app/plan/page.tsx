@@ -32,6 +32,7 @@ import {
   useDeleteTask,
   useInitializeTaskFromTeam,
   useSmartPlanTask,
+  useStartTaskExecution,
 } from "@/hooks/useTasks";
 import { useAgents } from "@/hooks/useAgents";
 import { useWorkspaceModels } from "@/hooks/useModels";
@@ -88,12 +89,14 @@ export default function PlanPage() {
   const deleteTask = useDeleteTask();
   const initFromTeam = useInitializeTaskFromTeam();
   const smartPlanTask = useSmartPlanTask();
+  const startExecution = useStartTaskExecution();
 
   const [editingStep, setEditingStep] = useState<string | null>(null);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [addAgentModal, setAddAgentModal] = useState(false);
   const [initializing, setInitializing] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const initAttempted = useRef(false);
 
   useEffect(() => {
@@ -215,11 +218,11 @@ export default function PlanPage() {
 
   const handleConfirmExecute = useCallback(() => {
     if (!id) return;
-    updateTaskStatus.mutate(
-      { taskId: id, status: "running" },
+    startExecution.mutate(
+      { taskId: id },
       { onSuccess: () => navigate(`/tasks/${id}/console`) },
     );
-  }, [id, updateTaskStatus, navigate]);
+  }, [id, startExecution, navigate]);
 
   if (taskLoading) {
     return (
@@ -282,10 +285,7 @@ export default function PlanPage() {
               重新规划
             </button>
             <button
-              onClick={() => {
-                if (!id) return;
-                deleteTask.mutate(id, { onSuccess: () => navigate("/tasks") });
-              }}
+              onClick={() => setDeleteConfirm(true)}
               disabled={deleteTask.isPending}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[0.78rem] font-medium text-danger border border-danger-light bg-danger-light/50 hover:bg-danger-light transition-all cursor-pointer",
@@ -575,10 +575,10 @@ export default function PlanPage() {
         <div className="mt-auto space-y-2" style={{ animation: "fade-in 0.25s ease 0.3s both" }}>
           <button
             onClick={handleConfirmExecute}
-            disabled={sortedSteps.length === 0 || updateTaskStatus.isPending}
+            disabled={sortedSteps.length === 0 || startExecution.isPending}
             className={cn(
               "w-full py-2.5 rounded-lg text-[0.82rem] font-semibold bg-gradient-to-r from-primary to-lavender text-white cursor-pointer transition-all hover:shadow-glow shadow-sm flex items-center justify-center gap-1.5",
-              (sortedSteps.length === 0 || updateTaskStatus.isPending) && "opacity-50 cursor-not-allowed",
+              (sortedSteps.length === 0 || startExecution.isPending) && "opacity-50 cursor-not-allowed",
             )}
           >
             {updateTaskStatus.isPending ? (
@@ -622,6 +622,33 @@ export default function PlanPage() {
               </button>
             ))
           )}
+        </div>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal open={deleteConfirm} onClose={() => setDeleteConfirm(false)} title="确认删除">
+        <div>
+          <p className="text-[0.82rem] text-text-secondary mb-5">
+            确定要删除该任务吗？关联的执行记录也会一并删除，此操作不可恢复。
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setDeleteConfirm(false)}
+              className="px-4 py-2 rounded-lg text-[0.82rem] font-medium text-text-secondary bg-surface border border-border-light hover:bg-bg-alt transition-colors cursor-pointer"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                if (!id) return;
+                deleteTask.mutate(id, { onSuccess: () => navigate("/tasks") });
+                setDeleteConfirm(false);
+              }}
+              className="px-4 py-2 rounded-lg text-[0.82rem] font-medium text-white bg-danger hover:bg-danger/90 transition-colors cursor-pointer"
+            >
+              确认删除
+            </button>
+          </div>
         </div>
       </Modal>
     </div>
