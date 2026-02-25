@@ -1,7 +1,12 @@
+import { useState } from "react";
 import {
   Bell,
   Database,
   Loader2,
+  Sparkles,
+  Eye,
+  EyeOff,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Toggle } from "@/components/ui";
@@ -140,6 +145,37 @@ export default function SettingsPage() {
             </SettingsRow>
           </SettingsSection>
 
+          {/* Skills Marketplace */}
+          <SettingsSection
+            title="Skills 市场"
+            icon={<Sparkles size={15} className="text-primary" />}
+            delay={240}
+          >
+            <SettingsRow label="SkillsMP API Key">
+              <ApiKeyInput
+                value={settings.skillsmp_api_key ?? ""}
+                onChange={(v) => updateSettings({ skillsmp_api_key: v || undefined })}
+              />
+            </SettingsRow>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[0.72rem] text-text-muted">
+                前往
+              </span>
+              <a
+                href="https://skillsmp.com/settings/api"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[0.72rem] text-primary hover:underline"
+              >
+                skillsmp.com/settings/api
+                <ExternalLink size={10} />
+              </a>
+              <span className="text-[0.72rem] text-text-muted">
+                获取免费 API Key（500 次/天）
+              </span>
+            </div>
+          </SettingsSection>
+
           {/* Hint */}
           <p className="text-[0.72rem] text-text-muted px-1">
             模型服务商凭证与调度策略请前往
@@ -188,6 +224,40 @@ function SettingsRow({
     <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
       <span className="text-[0.78rem] text-text-secondary">{label}</span>
       {children}
+    </div>
+  );
+}
+
+function ApiKeyInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="relative flex items-center gap-1.5">
+      <input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="sk_live_..."
+        className={cn(
+          "w-[280px] rounded-lg border border-border-light bg-bg px-3 py-2 pr-9",
+          "text-[0.78rem] text-text font-mono",
+          "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+          "transition-colors placeholder:text-text-muted/50"
+        )}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible(!visible)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors cursor-pointer bg-transparent border-none p-0"
+      >
+        {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
     </div>
   );
 }

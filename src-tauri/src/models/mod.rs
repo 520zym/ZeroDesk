@@ -241,6 +241,15 @@ pub struct SystemSettings {
     pub fail_notify: bool,
     pub budget_notify: bool,
     pub data_path: Option<String>,
+    pub skillsmp_api_key: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SystemModelAssignment {
+    pub workspace_id: String,
+    pub task_key: String,
+    pub model_id: String,
     pub updated_at: String,
 }
 

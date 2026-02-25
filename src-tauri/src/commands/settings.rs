@@ -21,6 +21,7 @@ pub struct UpdateSettingsPayload {
     pub fail_notify: Option<bool>,
     pub budget_notify: Option<bool>,
     pub data_path: Option<String>,
+    pub skillsmp_api_key: Option<String>,
 }
 
 #[tauri::command]
@@ -38,6 +39,7 @@ pub async fn update_settings(
             fail_notify = COALESCE(?6, fail_notify),
             budget_notify = COALESCE(?7, budget_notify),
             data_path = COALESCE(?8, data_path),
+            skillsmp_api_key = COALESCE(?9, skillsmp_api_key),
             updated_at = datetime('now')
         WHERE id = 1",
     )
@@ -49,6 +51,7 @@ pub async fn update_settings(
     .bind(payload.fail_notify.map(|v| v as i64))
     .bind(payload.budget_notify.map(|v| v as i64))
     .bind(payload.data_path)
+    .bind(payload.skillsmp_api_key)
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;

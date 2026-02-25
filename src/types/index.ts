@@ -120,17 +120,45 @@ export interface ResiliencePolicy {
   over_budget_action: string | null;
 }
 
+export interface SystemModelAssignment {
+  workspace_id: string;
+  task_key: string;
+  model_id: string;
+  updated_at: string;
+}
+
 // ─── Skill ───────────────────────────────────────────────────
 
 export interface Skill {
   id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
-  skill_type: string;
-  definition: string;
-  enabled: boolean;
+  icon_name: string | null;
+  icon_bg: string | null;
+  version: string | null;
+  scope: string | null;
+  scope_id: string | null;
+  status: string | null;
+  permissions_json: string | null;
+  source: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface MarketplaceSkill {
+  name: string | null;
+  description: string | null;
+  url: string | null;
+  repo: string | null;
+  stars: number | null;
+  category: string | null;
+  updated_at: string | null;
+}
+
+export interface MarketplaceSearchResult {
+  skills: MarketplaceSkill[];
+  total: number;
 }
 
 // ─── Knowledge ───────────────────────────────────────────────
@@ -199,6 +227,7 @@ export interface SystemSettings {
   fail_notify: boolean;
   budget_notify: boolean;
   data_path: string | null;
+  skillsmp_api_key: string | null;
   updated_at: string;
 }
 

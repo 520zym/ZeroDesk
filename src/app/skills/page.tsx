@@ -1,108 +1,24 @@
 import { useState } from "react";
 import {
-  Plus,
   Search,
   ChevronDown,
   Settings,
   Trash2,
   ArrowUpCircle,
   Package,
+  Star,
+  ExternalLink,
+  Loader2,
+  KeyRound,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs } from "@/components/ui";
+import { useSkills, useMarketplaceSearch } from "@/hooks/useSkills";
+import { useSettings } from "@/hooks/useSettings";
+import type { Skill, MarketplaceSkill } from "@/types";
 
-type SkillStatus = "installed" | "update";
 type Scope = "global" | "team" | "agent";
-
-interface Skill {
-  id: string;
-  name: string;
-  icon: string;
-  iconBg: string;
-  desc: string;
-  version: string;
-  scope: Scope;
-  scopeLabel: string;
-  scopeBg: string;
-  status: SkillStatus;
-  updateTo?: string;
-}
-
-const SKILLS: Skill[] = [
-  {
-    id: "s1",
-    name: "多源聚合搜索",
-    icon: "🔍",
-    iconBg: "bg-primary-light",
-    desc: "同时搜索多个数据源并智能去重",
-    version: "2.1.0",
-    scope: "global",
-    scopeLabel: "全局",
-    scopeBg: "bg-primary-light text-primary-active",
-    status: "installed",
-  },
-  {
-    id: "s2",
-    name: "结构化报告生成",
-    icon: "📝",
-    iconBg: "bg-sage-light",
-    desc: "将分析结果自动组装为 Markdown 报告",
-    version: "1.3.0",
-    scope: "team",
-    scopeLabel: "团队",
-    scopeBg: "bg-sage-light text-[#5a7a6b]",
-    status: "installed",
-  },
-  {
-    id: "s3",
-    name: "代码质量扫描",
-    icon: "🔬",
-    iconBg: "bg-lavender-light",
-    desc: "静态分析代码质量并输出改进建议",
-    version: "3.0.1",
-    scope: "agent",
-    scopeLabel: "Agent",
-    scopeBg: "bg-lavender-light text-[#6f5f80]",
-    status: "installed",
-  },
-  {
-    id: "s4",
-    name: "数据可视化",
-    icon: "📊",
-    iconBg: "bg-coral-light",
-    desc: "将结构化数据转化为图表与可视化",
-    version: "1.0.0",
-    scope: "global",
-    scopeLabel: "全局",
-    scopeBg: "bg-primary-light text-primary-active",
-    status: "installed",
-  },
-  {
-    id: "s5",
-    name: "知识库检索",
-    icon: "📚",
-    iconBg: "bg-sand-light",
-    desc: "检索本地知识库内容并返回相关文档",
-    version: "2.0.0",
-    scope: "global",
-    scopeLabel: "全局",
-    scopeBg: "bg-primary-light text-primary-active",
-    status: "update",
-    updateTo: "2.1.0",
-  },
-  {
-    id: "s6",
-    name: "翻译引擎",
-    icon: "🌐",
-    iconBg: "bg-info-light",
-    desc: "高质量多语言互译，保持术语一致性",
-    version: "1.2.0",
-    scope: "agent",
-    scopeLabel: "Agent",
-    scopeBg: "bg-lavender-light text-[#6f5f80]",
-    status: "installed",
-  },
-];
 
 const TABS = [
   { id: "all", label: "全部已安装" },
@@ -123,29 +39,56 @@ const scopeGroups: { scope: Scope; label: string; color: string }[] = [
   { scope: "agent", label: "Agent 私有", color: "bg-lavender" },
 ];
 
+const SCOPE_STYLE: Record<string, { label: string; bg: string }> = {
+  global: { label: "全局", bg: "bg-primary-light text-primary-active" },
+  team: { label: "团队", bg: "bg-sage-light text-[#5a7a6b]" },
+  agent: { label: "Agent", bg: "bg-lavender-light text-[#6f5f80]" },
+};
+
 export default function SkillsPage() {
   const [activeTab, setActiveTab] = useState("all");
   const [search, setSearch] = useState("");
   const [scopeFilter, setScopeFilter] = useState("all");
+  const [marketQuery, setMarketQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
 
-  const filtered = SKILLS.filter((s) => {
+  const { data: installedSkills = [], isLoading: skillsLoading } = useSkills();
+  const { data: settings } = useSettings();
+
+  const hasApiKey = !!settings?.skillsmp_api_key;
+
+  const {
+    data: marketResult,
+    isLoading: marketLoading,
+    isError: marketError,
+    error: marketErrorMsg,
+  } = useMarketplaceSearch(submittedQuery, activeTab === "market" && hasApiKey);
+
+  const handleMarketSearch = () => {
+    if (marketQuery.trim()) {
+      setSubmittedQuery(marketQuery.trim());
+    }
+  };
+
+  const filtered = installedSkills.filter((s) => {
     if (activeTab === "update" && s.status !== "update") return false;
     if (scopeFilter !== "all" && s.scope !== scopeFilter) return false;
-    if (
-      search &&
-      !s.name.toLowerCase().includes(search.toLowerCase()) &&
-      !s.desc.toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const nameMatch = s.name.toLowerCase().includes(q);
+      const descMatch = s.description?.toLowerCase().includes(q);
+      if (!nameMatch && !descMatch) return false;
+    }
     return true;
   });
 
   const groupedSkills = scopeGroups.map((g) => ({
     ...g,
-    skills: SKILLS.filter((s) => s.scope === g.scope),
+    skills: installedSkills.filter((s) => s.scope === g.scope),
   }));
 
-  const updatable = SKILLS.filter((s) => s.status === "update").length;
+  const updatable = installedSkills.filter((s) => s.status === "update").length;
+  const isMarket = activeTab === "market";
 
   return (
     <div className="flex gap-5 items-start">
@@ -156,11 +99,9 @@ export default function SkillsPage() {
           className="flex items-center justify-between mb-5"
           style={{ animation: "fade-in 0.25s ease-out" }}
         >
-          <p className="text-[0.82rem] text-text-secondary">管理本地与在线 Skills，为 Agent 提供可调用的外部能力</p>
-          <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.82rem] font-medium bg-gradient-to-r from-primary to-lavender text-white border-none cursor-pointer transition-all hover:shadow-glow shadow-sm">
-            <Plus size={15} strokeWidth={2.5} />
-            安装 Skill
-          </button>
+          <p className="text-[0.82rem] text-text-secondary">
+            管理本地与在线 Skills，为 Agent 提供可调用的外部能力
+          </p>
         </div>
 
         {/* Tabs */}
@@ -168,11 +109,7 @@ export default function SkillsPage() {
           className="mb-4"
           style={{ animation: "fade-in 0.25s ease-out 0.05s both" }}
         >
-          <Tabs
-            tabs={TABS}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
+          <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
         </div>
 
         {/* Search toolbar */}
@@ -185,115 +122,70 @@ export default function SkillsPage() {
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
             />
-            <input
-              type="text"
-              placeholder="搜索 Skill..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 rounded-lg bg-surface text-[0.82rem] text-text border border-border-light focus:border-primary/40 focus:outline-none transition-colors placeholder:text-text-muted"
-            />
+            {isMarket ? (
+              <input
+                type="text"
+                placeholder="AI 语义搜索市场 Skills（回车搜索）..."
+                value={marketQuery}
+                onChange={(e) => setMarketQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleMarketSearch(); }}
+                className="w-full pl-8 pr-3 py-2 rounded-lg bg-surface text-[0.82rem] text-text border border-border-light focus:border-primary/40 focus:outline-none transition-colors placeholder:text-text-muted"
+              />
+            ) : (
+              <input
+                type="text"
+                placeholder="搜索已安装 Skill..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 rounded-lg bg-surface text-[0.82rem] text-text border border-border-light focus:border-primary/40 focus:outline-none transition-colors placeholder:text-text-muted"
+              />
+            )}
           </div>
-          <div className="relative">
-            <select
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value)}
-              className="appearance-none pl-3 pr-7 py-2 rounded-lg bg-surface text-[0.82rem] text-text-secondary border border-border-light focus:border-primary/40 focus:outline-none cursor-pointer transition-colors"
+          {isMarket ? (
+            <button
+              onClick={handleMarketSearch}
+              disabled={!marketQuery.trim() || marketLoading}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[0.82rem] font-medium bg-gradient-to-r from-primary to-lavender text-white border-none cursor-pointer transition-all hover:shadow-glow shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {SCOPE_FILTERS.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              size={12}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
-            />
-          </div>
-        </div>
-
-        {/* Skill grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filtered.map((skill, i) => (
-            <div
-              key={skill.id}
-              className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col"
-              style={{
-                animation: `fade-in 0.3s ease-out ${i * 0.05}s both`,
-              }}
-            >
-              {/* Top */}
-              <div className="flex items-start gap-3 mb-3">
-                <div
-                  className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center text-[1.1rem] shrink-0",
-                    skill.iconBg,
-                  )}
-                >
-                  {skill.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[0.88rem] font-semibold text-text truncate group-hover:text-primary transition-colors">
-                    {skill.name}
-                  </div>
-                  <p className="text-[0.75rem] text-text-muted mt-0.5 line-clamp-2 leading-relaxed">
-                    {skill.desc}
-                  </p>
-                </div>
-              </div>
-
-              {/* Meta pills */}
-              <div className="flex items-center gap-1.5 mb-3">
-                <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
-                  v{skill.version}
-                </span>
-                <span
-                  className={cn(
-                    "inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium",
-                    skill.scopeBg,
-                  )}
-                >
-                  {skill.scopeLabel}
-                </span>
-              </div>
-
-              {/* Actions row */}
-              <div className="flex items-center justify-between mt-auto pt-2 border-t border-border-light/60">
-                <div>
-                  {skill.status === "update" ? (
-                    <span className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-warning">
-                      <ArrowUpCircle size={12} />
-                      可升级至 v{skill.updateTo}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-success">
-                      <Package size={12} />
-                      已安装
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1">
-                  <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-text hover:bg-bg-alt transition-colors cursor-pointer bg-transparent border-none">
-                    <Settings size={11} />
-                    配置
-                  </button>
-                  <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-danger hover:bg-danger-light transition-colors cursor-pointer bg-transparent border-none">
-                    <Trash2 size={11} />
-                    卸载
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {filtered.length === 0 && (
-            <div className="col-span-full text-center py-12 text-[0.82rem] text-text-muted">
-              {activeTab === "market"
-                ? "市场功能即将上线，敬请期待"
-                : "没有找到匹配的 Skill"}
+              <Sparkles size={14} />
+              AI 搜索
+            </button>
+          ) : (
+            <div className="relative">
+              <select
+                value={scopeFilter}
+                onChange={(e) => setScopeFilter(e.target.value)}
+                className="appearance-none pl-3 pr-7 py-2 rounded-lg bg-surface text-[0.82rem] text-text-secondary border border-border-light focus:border-primary/40 focus:outline-none cursor-pointer transition-colors"
+              >
+                {SCOPE_FILTERS.map((f) => (
+                  <option key={f.id} value={f.id}>{f.label}</option>
+                ))}
+              </select>
+              <ChevronDown
+                size={12}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+              />
             </div>
           )}
         </div>
+
+        {/* Content */}
+        {isMarket ? (
+          <MarketplaceContent
+            hasApiKey={hasApiKey}
+            query={submittedQuery}
+            result={marketResult}
+            loading={marketLoading}
+            error={marketError}
+            errorMsg={marketErrorMsg}
+          />
+        ) : (
+          <InstalledContent
+            skills={filtered}
+            loading={skillsLoading}
+            activeTab={activeTab}
+          />
+        )}
       </div>
 
       {/* Right aside */}
@@ -310,12 +202,7 @@ export default function SkillsPage() {
             {groupedSkills.map((group) => (
               <div key={group.scope}>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span
-                    className={cn(
-                      "w-2 h-2 rounded-full shrink-0",
-                      group.color,
-                    )}
-                  />
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", group.color)} />
                   <span className="text-[0.78rem] font-medium text-text-secondary">
                     {group.label} ({group.skills.length})
                   </span>
@@ -326,10 +213,13 @@ export default function SkillsPage() {
                       key={s.id}
                       className="flex items-center gap-2 text-[0.74rem] text-text-muted py-0.5"
                     >
-                      <span className="shrink-0">{s.icon}</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-muted/30 shrink-0" />
                       <span className="truncate">{s.name}</span>
                     </div>
                   ))}
+                  {group.skills.length === 0 && (
+                    <span className="text-[0.72rem] text-text-muted/50">暂无</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -345,7 +235,7 @@ export default function SkillsPage() {
             <div className="flex items-center justify-between">
               <span className="text-[0.78rem] text-text-muted">已安装</span>
               <span className="text-[0.88rem] font-bold text-text font-mono">
-                {SKILLS.length}
+                {installedSkills.length}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -360,14 +250,283 @@ export default function SkillsPage() {
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[0.78rem] text-text-muted">总调用</span>
-              <span className="text-[0.88rem] font-bold text-text font-mono">
-                1,247 次
+              <span className="text-[0.78rem] text-text-muted">API Key</span>
+              <span className={cn(
+                "text-[0.75rem] font-medium",
+                hasApiKey ? "text-success" : "text-text-muted"
+              )}>
+                {hasApiKey ? "已配置" : "未配置"}
               </span>
             </div>
           </div>
         </div>
       </aside>
+    </div>
+  );
+}
+
+// --- Installed Skills Grid ---
+
+function InstalledContent({
+  skills,
+  loading,
+  activeTab,
+}: {
+  skills: Skill[];
+  loading: boolean;
+  activeTab: string;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={20} className="animate-spin text-text-muted" />
+      </div>
+    );
+  }
+
+  if (skills.length === 0) {
+    return (
+      <div className="text-center py-16 text-[0.82rem] text-text-muted">
+        {activeTab === "update" ? "所有 Skill 均为最新版本" : "暂无已安装的 Skill"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {skills.map((skill, i) => (
+        <InstalledSkillCard key={skill.id} skill={skill} index={i} />
+      ))}
+    </div>
+  );
+}
+
+function InstalledSkillCard({ skill, index }: { skill: Skill; index: number }) {
+  const scopeInfo = SCOPE_STYLE[skill.scope ?? "global"] ?? SCOPE_STYLE.global;
+
+  return (
+    <div
+      className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col"
+      style={{ animation: `fade-in 0.3s ease-out ${index * 0.05}s both` }}
+    >
+      <div className="flex items-start gap-3 mb-3">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-[0.75rem] font-bold text-white shrink-0"
+          style={{ backgroundColor: skill.icon_bg ?? "#6C8FC7" }}
+        >
+          {skill.name.slice(0, 2)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.88rem] font-semibold text-text truncate group-hover:text-primary transition-colors">
+            {skill.name}
+          </div>
+          <p className="text-[0.75rem] text-text-muted mt-0.5 line-clamp-2 leading-relaxed">
+            {skill.description ?? "暂无描述"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-3">
+        {skill.version && (
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-secondary">
+            v{skill.version}
+          </span>
+        )}
+        <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium", scopeInfo.bg)}>
+          {scopeInfo.label}
+        </span>
+        {skill.source === "marketplace" && (
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-primary-light text-primary">
+            市场
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between mt-auto pt-2 border-t border-border-light/60">
+        <div>
+          {skill.status === "update" ? (
+            <span className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-warning">
+              <ArrowUpCircle size={12} />
+              可升级
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-[0.72rem] font-medium text-success">
+              <Package size={12} />
+              已安装
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-text hover:bg-bg-alt transition-colors cursor-pointer bg-transparent border-none">
+            <Settings size={11} />
+            配置
+          </button>
+          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-danger hover:bg-danger-light transition-colors cursor-pointer bg-transparent border-none">
+            <Trash2 size={11} />
+            卸载
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Marketplace Content ---
+
+function MarketplaceContent({
+  hasApiKey,
+  query,
+  result,
+  loading,
+  error,
+  errorMsg,
+}: {
+  hasApiKey: boolean;
+  query: string;
+  result: { skills: MarketplaceSkill[]; total: number } | undefined;
+  loading: boolean;
+  error: boolean;
+  errorMsg: unknown;
+}) {
+  if (!hasApiKey) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <KeyRound size={32} className="text-text-muted/40" />
+        <p className="text-[0.85rem] text-text-secondary font-medium">
+          需要配置 SkillsMP API Key
+        </p>
+        <p className="text-[0.78rem] text-text-muted text-center max-w-md">
+          前往{" "}
+          <a href="/settings" className="text-primary hover:underline">设置页面</a>
+          {" "}填写 API Key，即可通过 AI 语义搜索浏览来自{" "}
+          <a
+            href="https://skillsmp.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            SkillsMP
+          </a>
+          {" "}的 28 万+ 开源 Skills
+        </p>
+      </div>
+    );
+  }
+
+  if (!query.trim()) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-2">
+        <Sparkles size={28} className="text-text-muted/40" />
+        <p className="text-[0.82rem] text-text-muted">
+          输入自然语言描述，AI 会为你找到最匹配的 Skills
+        </p>
+        <p className="text-[0.72rem] text-text-muted/60">
+          例如：How to create a web scraper / 代码审查工具 / SEO optimization
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={20} className="animate-spin text-primary" />
+        <span className="ml-2 text-[0.82rem] text-text-muted">AI 搜索中...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16 text-[0.82rem] text-danger">
+        {errorMsg instanceof Error ? errorMsg.message : "搜索失败，请检查 API Key 或网络"}
+      </div>
+    );
+  }
+
+  if (!result || result.skills.length === 0) {
+    return (
+      <div className="text-center py-16 text-[0.82rem] text-text-muted">
+        未找到匹配 &ldquo;{query}&rdquo; 的 Skill
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="mb-3 text-[0.75rem] text-text-muted">
+        共找到 {result.total} 个相关 Skill
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {result.skills.map((skill, i) => (
+          <MarketplaceSkillCard key={`${skill.repo}-${skill.name}-${i}`} skill={skill} index={i} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function MarketplaceSkillCard({ skill, index }: { skill: MarketplaceSkill; index: number }) {
+  const repoShort = skill.repo?.replace("https://github.com/", "") ?? "";
+
+  return (
+    <div
+      className="bg-surface rounded-xl border border-border-light p-4 transition-all hover:shadow-card-hover hover:border-border-hover group flex flex-col"
+      style={{ animation: `fade-in 0.3s ease-out ${index * 0.04}s both` }}
+    >
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-lavender/20 flex items-center justify-center text-[0.75rem] font-bold text-primary shrink-0">
+          {(skill.name ?? "SK").slice(0, 2).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.88rem] font-semibold text-text truncate group-hover:text-primary transition-colors">
+            {skill.name ?? "未命名"}
+          </div>
+          <p className="text-[0.75rem] text-text-muted mt-0.5 line-clamp-2 leading-relaxed">
+            {skill.description ?? "暂无描述"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+        {skill.category && (
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-primary-light text-primary">
+            {skill.category}
+          </span>
+        )}
+        {skill.stars != null && skill.stars > 0 && (
+          <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-sand-light text-[#a08b5b]">
+            <Star size={10} />
+            {skill.stars >= 1000 ? `${(skill.stars / 1000).toFixed(1)}k` : skill.stars}
+          </span>
+        )}
+        {repoShort && (
+          <span className="inline-flex px-2 py-0.5 rounded-full text-[0.68rem] font-medium bg-bg-alt text-text-muted truncate max-w-[160px]">
+            {repoShort}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between mt-auto pt-2 border-t border-border-light/60">
+        {skill.updated_at && (
+          <span className="text-[0.7rem] text-text-muted">
+            {skill.updated_at.slice(0, 10)}
+          </span>
+        )}
+        <div className="flex items-center gap-1 ml-auto">
+          {skill.url && (
+            <a
+              href={skill.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[0.72rem] font-medium text-text-muted hover:text-primary hover:bg-primary-light transition-colors"
+            >
+              <ExternalLink size={11} />
+              查看
+            </a>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

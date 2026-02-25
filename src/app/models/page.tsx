@@ -40,6 +40,8 @@ import {
   useFetchProviderModels,
   useToggleModelEnabled,
   useBatchToggleModels,
+  useSystemModelAssignments,
+  useSetSystemModelAssignment,
 } from "@/hooks/useModels";
 import type { ModelProvider, Model, TestConnectionResult } from "@/types";
 
@@ -215,6 +217,14 @@ export default function ModelsPage() {
   const fetchModels = useFetchProviderModels();
   const toggleModelEnabled = useToggleModelEnabled();
 
+  const { data: systemAssignments = [] } = useSystemModelAssignments();
+  const setSystemModelAssignment = useSetSystemModelAssignment();
+
+  const systemModels: Record<string, string> = {};
+  for (const a of systemAssignments) {
+    systemModels[a.task_key] = a.model_id;
+  }
+
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -225,7 +235,6 @@ export default function ModelsPage() {
   const [backoff, setBackoff] = useState("exponential");
   const [overBudget, setOverBudget] = useState("downgrade_confirm");
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [systemModels, setSystemModels] = useState<Record<string, string>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [addSelected, setAddSelected] = useState<string | null>(null);
   const [addApiKey, setAddApiKey] = useState("");
@@ -572,8 +581,11 @@ export default function ModelsPage() {
               </div>
               <ModelPicker
                 value={systemModels[task.id] ?? ""}
-                onChange={(id) =>
-                  setSystemModels((prev) => ({ ...prev, [task.id]: id }))
+                onChange={(modelId) =>
+                  setSystemModelAssignment.mutate({
+                    taskKey: task.id,
+                    modelId,
+                  })
                 }
                 providers={providers}
                 models={allModels}

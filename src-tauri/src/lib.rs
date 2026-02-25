@@ -57,6 +57,8 @@ pub fn run() {
             models_cmd::batch_toggle_models,
             models_cmd::test_provider_connection,
             models_cmd::fetch_provider_models,
+            models_cmd::get_system_model_assignments,
+            models_cmd::set_system_model_assignment,
             models_cmd::get_fallback_chain,
             models_cmd::get_resilience_policy,
             models_cmd::update_resilience_policy,
@@ -64,6 +66,7 @@ pub fn run() {
             skills::list_skills,
             skills::create_skill,
             skills::update_skill,
+            skills::search_marketplace_skills,
             // knowledge
             knowledge::list_knowledge_items,
             knowledge::get_knowledge_item,

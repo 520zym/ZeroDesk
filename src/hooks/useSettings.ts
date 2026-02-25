@@ -19,6 +19,7 @@ interface UpdateSettingsPayload {
   fail_notify?: boolean;
   budget_notify?: boolean;
   data_path?: string;
+  skillsmp_api_key?: string;
 }
 
 export function useUpdateSettings() {

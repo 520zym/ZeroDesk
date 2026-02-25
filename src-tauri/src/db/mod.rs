@@ -8,6 +8,8 @@ pub const DEFAULT_WORKSPACE_ID: &str = "default";
 const MIGRATION_SQL: &str = include_str!("migrations/001_initial.sql");
 const MIGRATION_002_SQL: &str = include_str!("migrations/002_system_settings.sql");
 const MIGRATION_003_SQL: &str = include_str!("migrations/003_provider_model_enabled.sql");
+const MIGRATION_004_SQL: &str = include_str!("migrations/004_skillsmp_api_key.sql");
+const MIGRATION_005_SQL: &str = include_str!("migrations/005_system_model_assignments.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -28,7 +30,7 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
-    for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL] {
+    for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL, MIGRATION_004_SQL, MIGRATION_005_SQL] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))

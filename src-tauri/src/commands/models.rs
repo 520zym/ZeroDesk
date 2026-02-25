@@ -5,7 +5,7 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::db::DEFAULT_WORKSPACE_ID;
-use crate::models::{FallbackChainEntry, Model, ModelProvider, ResiliencePolicy, TestConnectionResult};
+use crate::models::{FallbackChainEntry, Model, ModelProvider, ResiliencePolicy, SystemModelAssignment, TestConnectionResult};
 
 // ── OpenAI-compatible API response types ─────────────────────
 
@@ -539,6 +539,46 @@ pub async fn fetch_provider_models(
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
+}
+
+// ── System Model Assignments ─────────────────────────────────
+
+#[tauri::command]
+pub async fn get_system_model_assignments(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<SystemModelAssignment>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    sqlx::query_as::<_, SystemModelAssignment>(
+        "SELECT * FROM system_model_assignments WHERE workspace_id = ?1",
+    )
+    .bind(workspace_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_system_model_assignment(
+    pool: State<'_, SqlitePool>,
+    task_key: String,
+    model_id: String,
+) -> Result<Vec<SystemModelAssignment>, String> {
+    let workspace_id = DEFAULT_WORKSPACE_ID;
+    sqlx::query(
+        "INSERT INTO system_model_assignments (workspace_id, task_key, model_id)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(workspace_id, task_key) DO UPDATE SET
+           model_id = excluded.model_id,
+           updated_at = datetime('now')",
+    )
+    .bind(workspace_id)
+    .bind(&task_key)
+    .bind(&model_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    get_system_model_assignments(pool).await
 }
 
 // ── Fallback & Resilience ────────────────────────────────────

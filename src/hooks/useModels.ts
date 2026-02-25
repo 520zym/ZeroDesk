@@ -6,6 +6,7 @@ import type {
   FallbackChainEntry,
   ResiliencePolicy,
   TestConnectionResult,
+  SystemModelAssignment,
 } from "@/types";
 
 export function useProviders() {
@@ -162,6 +163,29 @@ export function useUpdateResiliencePolicy() {
     }) => tauriInvoke<ResiliencePolicy>("update_resilience_policy", params),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["resilience-policy"] });
+    },
+  });
+}
+
+export function useSystemModelAssignments() {
+  return useQuery({
+    queryKey: ["system-model-assignments"],
+    queryFn: () =>
+      tauriInvoke<SystemModelAssignment[]>("get_system_model_assignments"),
+  });
+}
+
+export function useSetSystemModelAssignment() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskKey: string; modelId: string }) =>
+      tauriInvoke<SystemModelAssignment[]>(
+        "set_system_model_assignment",
+        params,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["system-model-assignments"] });
     },
   });
 }
