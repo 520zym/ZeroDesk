@@ -359,6 +359,26 @@ fn lookup_reference_price(model_name: &str) -> f64 {
         return 0.14;
     }
 
+    // ── MiniMax ──────────────────────────────────────────────
+    if id.contains("minimax-m2.5-highspeed") {
+        return 0.35;
+    }
+    if id.contains("minimax-m2.5") {
+        return 0.70;
+    }
+    if id.contains("minimax-m2.1") {
+        return 0.55;
+    }
+    if id.contains("minimax-m2") {
+        return 0.40;
+    }
+    if id.contains("abab6.5s") || id.contains("abab6.5-chat") {
+        return 1.00;
+    }
+    if id.contains("abab5.5s") || id.contains("abab5.5-chat") {
+        return 0.36;
+    }
+
     // ── Embedding models (much cheaper) ─────────────────────
     if id.contains("embedding") || id.contains("bge-") {
         return 0.02;
@@ -429,6 +449,48 @@ pub async fn test_provider_connection(
         }
         Ok(r) => {
             let status = r.status().as_u16();
+
+            // Some providers (e.g. MiniMax) don't expose GET /models.
+            // If we get 404, fall back to a minimal chat completions probe.
+            if status == 404 {
+                let chat_url = format!(
+                    "{}/chat/completions",
+                    provider.base_url.trim_end_matches('/')
+                );
+                let probe_start = Instant::now();
+                let probe = client
+                    .post(&chat_url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .header("Content-Type", "application/json")
+                    .body(r#"{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}"#)
+                    .timeout(std::time::Duration::from_secs(15))
+                    .send()
+                    .await;
+                let probe_latency = probe_start.elapsed().as_millis() as i64;
+
+                if let Ok(pr) = probe {
+                    let ps = pr.status().as_u16();
+                    // Any HTTP response (even 400/401/422) means the server is reachable
+                    if ps != 404 {
+                        sqlx::query(
+                            "UPDATE model_providers SET status = 'online', avg_latency_ms = ?1, updated_at = datetime('now') WHERE id = ?2",
+                        )
+                        .bind(probe_latency)
+                        .bind(&provider_id)
+                        .execute(pool.inner())
+                        .await
+                        .ok();
+
+                        return Ok(TestConnectionResult {
+                            success: true,
+                            latency_ms: probe_latency,
+                            model_count: 0,
+                            error: None,
+                        });
+                    }
+                }
+            }
+
             let body = r.text().await.unwrap_or_default();
             let err_msg = format!("HTTP {} - {}", status, body.chars().take(200).collect::<String>());
 
@@ -467,6 +529,58 @@ pub async fn test_provider_connection(
     }
 }
 
+/// MiniMax doesn't expose GET /models — return known models directly.
+async fn fetch_minimax_models(
+    pool: &SqlitePool,
+    provider_id: &str,
+) -> Result<Vec<Model>, String> {
+    // (model_id, price_usd_per_million_tokens, context_window)
+    let minimax_models: &[(&str, f64, i32)] = &[
+        ("MiniMax-M2.5",           0.70, 204800),
+        ("MiniMax-M2.5-highspeed", 0.35, 204800),
+        ("MiniMax-M2.1",           0.55, 204800),
+        ("MiniMax-M2",             0.40, 204800),
+    ];
+
+    for (model_id, price, ctx) in minimax_models {
+        sqlx::query(
+            "INSERT INTO models (id, provider_id, name, price_per_million_tokens, context_window_tokens)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+               price_per_million_tokens = CASE
+                 WHEN models.price_per_million_tokens IS NULL OR models.price_per_million_tokens = 0
+                 THEN excluded.price_per_million_tokens
+                 ELSE models.price_per_million_tokens
+               END",
+        )
+        .bind(format!("{}:{}", provider_id, model_id))
+        .bind(provider_id)
+        .bind(model_id)
+        .bind(price)
+        .bind(ctx)
+        .execute(pool)
+        .await
+        .ok();
+    }
+
+    sqlx::query(
+        "UPDATE model_providers SET models_count = ?1, status = 'online', updated_at = datetime('now') WHERE id = ?2",
+    )
+    .bind(minimax_models.len() as i64)
+    .bind(provider_id)
+    .execute(pool)
+    .await
+    .ok();
+
+    sqlx::query_as::<_, Model>(
+        "SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC",
+    )
+    .bind(provider_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn fetch_provider_models(
     pool: State<'_, SqlitePool>,
@@ -478,6 +592,11 @@ pub async fn fetch_provider_models(
             .fetch_one(pool.inner())
             .await
             .map_err(|e| e.to_string())?;
+
+    // MiniMax doesn't have a /models endpoint (covers both minimaxi.com and minimax.chat)
+    if provider.base_url.to_lowercase().contains("minimax") {
+        return fetch_minimax_models(pool.inner(), &provider_id).await;
+    }
 
     let api_key = provider.api_key_encrypted.unwrap_or_default();
     let url = build_models_url(&provider.base_url);

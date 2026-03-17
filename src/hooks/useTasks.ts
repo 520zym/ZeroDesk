@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
 import type { Task, TaskRun, TaskStats, TaskStep, TaskStepSummary, ExecutionMessage } from "@/types";
 
+export interface SmartPlanResult {
+  steps: TaskStep[];
+  thinking: string | null;
+}
+
 export function useTasks() {
   return useQuery({
     queryKey: ["tasks"],
@@ -296,7 +301,7 @@ export function useSmartPlanTask() {
 
   return useMutation({
     mutationFn: (params: { taskId: string }) =>
-      tauriInvoke<TaskStep[]>("smart_plan_task", params),
+      tauriInvoke<SmartPlanResult>("smart_plan_task", params),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["task-steps", variables.taskId] });
       qc.invalidateQueries({ queryKey: ["task", variables.taskId] });

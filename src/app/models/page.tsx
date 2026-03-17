@@ -25,12 +25,15 @@ import {
   X,
   Download,
   Users,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProgressBar, Modal, Toggle } from "@/components/ui";
 import {
   useProviders,
   useCreateProvider,
+  useUpdateProvider,
+  useDeleteProvider,
   useWorkspaceModels,
   useFallbackChain,
   useResiliencePolicy,
@@ -201,6 +204,13 @@ const PROVIDER_PRESETS = [
     icon: "硅",
     color: "#7C3AED",
     baseUrl: "https://api.siliconflow.cn/v1",
+  },
+  {
+    id: "minimax",
+    name: "MiniMax",
+    icon: "M",
+    color: "#FF6B35",
+    baseUrl: "https://api.minimaxi.com/v1",
   },
 ];
 
@@ -1213,6 +1223,7 @@ export default function ModelsPage() {
               },
             )
           }
+          onDelete={() => setConfigProvider(null)}
         />
       )}
     </div>
@@ -1279,16 +1290,45 @@ function ProviderConfigModal({
   provider,
   onClose,
   onToggleProvider,
+  onDelete,
 }: {
   provider: ModelProvider;
   onClose: () => void;
   onToggleProvider: (enabled: boolean) => void;
+  onDelete: () => void;
 }) {
   const { data: models = [], isLoading, refetch } = useModels(provider.id);
   const fetchModels = useFetchProviderModels();
   const toggleModel = useToggleModelEnabled();
   const batchToggle = useBatchToggleModels();
+  const updateProvider = useUpdateProvider();
+  const deleteProvider = useDeleteProvider();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  // Edit state
+  const [editName, setEditName] = useState(provider.name);
+  const [editApiKey, setEditApiKey] = useState(provider.api_key_encrypted ?? "");
+  const [editBaseUrl, setEditBaseUrl] = useState(provider.base_url);
+  const [showEditKey, setShowEditKey] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const isDirty =
+    editName !== provider.name ||
+    editApiKey !== (provider.api_key_encrypted ?? "") ||
+    editBaseUrl !== provider.base_url;
+
+  const handleSave = () => {
+    updateProvider.mutate({
+      id: provider.id,
+      name: editName || undefined,
+      baseUrl: editBaseUrl || undefined,
+      apiKeyEncrypted: editApiKey || undefined,
+    });
+  };
+
+  const handleDelete = () => {
+    deleteProvider.mutate({ id: provider.id }, { onSuccess: () => onDelete() });
+  };
 
   const hasModels = models.length > 0;
   const groups = groupModels(models);
@@ -1328,6 +1368,67 @@ function ProviderConfigModal({
       width="560px"
     >
       <div className="space-y-5">
+        {/* Edit basic info */}
+        <div className="space-y-3 rounded-xl border border-border-light p-4">
+          <div className="text-[0.78rem] font-semibold text-text mb-1">基本信息</div>
+          <div>
+            <label className="block text-[0.72rem] font-medium text-text-muted mb-1">
+              供应商名称
+            </label>
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="w-full rounded-lg border border-border-light bg-bg px-3 py-1.5 text-[0.8rem] text-text placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-[0.72rem] font-medium text-text-muted mb-1">
+              API Key
+            </label>
+            <div className="relative">
+              <input
+                type={showEditKey ? "text" : "password"}
+                value={editApiKey}
+                onChange={(e) => setEditApiKey(e.target.value)}
+                className="w-full rounded-lg border border-border-light bg-bg px-3 py-1.5 pr-9 text-[0.8rem] text-text font-mono placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-colors"
+              />
+              <button
+                onClick={() => setShowEditKey((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text transition-colors cursor-pointer"
+              >
+                {showEditKey ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[0.72rem] font-medium text-text-muted mb-1">
+              Base URL
+            </label>
+            <input
+              type="text"
+              value={editBaseUrl}
+              onChange={(e) => setEditBaseUrl(e.target.value)}
+              className="w-full rounded-lg border border-border-light bg-bg px-3 py-1.5 text-[0.8rem] text-text font-mono placeholder:text-text-muted focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-colors"
+            />
+          </div>
+          <div className="flex justify-end">
+            <button
+              disabled={!isDirty || updateProvider.isPending}
+              onClick={handleSave}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[0.78rem] font-medium transition-colors cursor-pointer border-none shadow-sm",
+                isDirty && !updateProvider.isPending
+                  ? "bg-primary text-white hover:bg-primary-hover"
+                  : "bg-bg-alt text-text-muted cursor-not-allowed",
+              )}
+            >
+              {updateProvider.isPending && <Loader2 size={12} className="animate-spin" />}
+              {updateProvider.isPending ? "保存中..." : "保存修改"}
+            </button>
+          </div>
+        </div>
+
         {/* Enable toggle */}
         <div className="flex items-center justify-between rounded-xl border border-border-light px-4 py-3">
           <div>
@@ -1498,10 +1599,39 @@ function ProviderConfigModal({
 
       {/* Sticky footer */}
       <div className="sticky bottom-0 bg-surface pt-3 pb-1 -mx-6 px-6 border-t border-border-light/60">
-        <div className="flex justify-end">
+        {confirmDelete ? (
+          <div className="flex items-center gap-3 mb-3 p-3 rounded-lg bg-coral-light border border-danger/20">
+            <AlertTriangle size={14} className="text-danger shrink-0" />
+            <span className="text-[0.78rem] text-danger flex-1">
+              删除后，该供应商及其所有模型数据将永久移除，无法恢复。
+            </span>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1 rounded-md text-[0.75rem] font-medium text-text-secondary hover:text-text bg-surface border border-border-light transition-colors cursor-pointer"
+            >
+              取消
+            </button>
+            <button
+              disabled={deleteProvider.isPending}
+              onClick={handleDelete}
+              className="px-3 py-1 rounded-md text-[0.75rem] font-medium text-white bg-danger hover:bg-danger/80 transition-colors cursor-pointer inline-flex items-center gap-1 border-none"
+            >
+              {deleteProvider.isPending && <Loader2 size={11} className="animate-spin" />}
+              确认删除
+            </button>
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.78rem] font-medium text-danger hover:bg-coral-light transition-colors cursor-pointer border-none bg-transparent"
+          >
+            <Trash2 size={13} />
+            删除供应商
+          </button>
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-lg text-[0.8rem] font-medium bg-primary text-white hover:bg-primary-hover active:bg-primary-active transition-colors cursor-pointer shadow-sm"
+            className="px-5 py-2 rounded-lg text-[0.8rem] font-medium bg-primary text-white hover:bg-primary-hover active:bg-primary-active transition-colors cursor-pointer shadow-sm border-none"
           >
             完成
           </button>

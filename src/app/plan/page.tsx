@@ -33,6 +33,7 @@ import {
   useInitializeTaskFromTeam,
   useSmartPlanTask,
   useStartTaskExecution,
+  type SmartPlanResult,
 } from "@/hooks/useTasks";
 import { useAgents } from "@/hooks/useAgents";
 import { useWorkspaceModels } from "@/hooks/useModels";
@@ -97,6 +98,8 @@ export default function PlanPage() {
   const [initializing, setInitializing] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [planThinking, setPlanThinking] = useState<string | null>(null);
+  const [thinkingOpen, setThinkingOpen] = useState(false);
   const initAttempted = useRef(false);
 
   useEffect(() => {
@@ -114,8 +117,10 @@ export default function PlanPage() {
       initAttempted.current = true;
       setInitializing(true);
       setInitError(null);
+      setPlanThinking(null);
       smartPlanTask
         .mutateAsync({ taskId: id })
+        .then((r: SmartPlanResult) => { if (r.thinking) setPlanThinking(r.thinking); })
         .catch((e) => setInitError(String(e)))
         .finally(() => setInitializing(false));
     }
@@ -267,13 +272,17 @@ export default function PlanPage() {
                 initAttempted.current = false;
                 setInitError(null);
                 setInitializing(true);
-                const promise =
-                  task.plan_mode === "reuse" && task.team_id
-                    ? initFromTeam.mutateAsync({ taskId: id, teamId: task.team_id })
-                    : smartPlanTask.mutateAsync({ taskId: id });
-                promise
-                  .catch((e) => setInitError(String(e)))
-                  .finally(() => setInitializing(false));
+                setPlanThinking(null);
+                if (task.plan_mode === "reuse" && task.team_id) {
+                  initFromTeam.mutateAsync({ taskId: id, teamId: task.team_id })
+                    .catch((e) => setInitError(String(e)))
+                    .finally(() => setInitializing(false));
+                } else {
+                  smartPlanTask.mutateAsync({ taskId: id })
+                    .then((r: SmartPlanResult) => { if (r.thinking) setPlanThinking(r.thinking); })
+                    .catch((e) => setInitError(String(e)))
+                    .finally(() => setInitializing(false));
+                }
               }}
               disabled={initializing}
               className={cn(
@@ -352,13 +361,17 @@ export default function PlanPage() {
                 if (!id) return;
                 setInitError(null);
                 setInitializing(true);
-                const promise =
-                  task.plan_mode === "reuse" && task.team_id
-                    ? initFromTeam.mutateAsync({ taskId: id, teamId: task.team_id })
-                    : smartPlanTask.mutateAsync({ taskId: id });
-                promise
-                  .catch((e) => setInitError(String(e)))
-                  .finally(() => setInitializing(false));
+                setPlanThinking(null);
+                if (task.plan_mode === "reuse" && task.team_id) {
+                  initFromTeam.mutateAsync({ taskId: id, teamId: task.team_id })
+                    .catch((e) => setInitError(String(e)))
+                    .finally(() => setInitializing(false));
+                } else {
+                  smartPlanTask.mutateAsync({ taskId: id })
+                    .then((r: SmartPlanResult) => { if (r.thinking) setPlanThinking(r.thinking); })
+                    .catch((e) => setInitError(String(e)))
+                    .finally(() => setInitializing(false));
+                }
               }}
               className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[0.75rem] font-medium bg-surface text-text-secondary border border-border-light hover:border-primary/30 hover:text-primary transition-all cursor-pointer"
             >
@@ -389,6 +402,38 @@ export default function PlanPage() {
               </>
             )}
           </div>
+
+          {/* AI Thinking process — only shown when reasoning model was used */}
+          {planThinking && (
+            <div
+              className="mb-5 rounded-xl border border-lavender/30 bg-lavender-light/40 overflow-hidden"
+              style={{ animation: "fade-in 0.3s ease 0.15s both" }}
+            >
+              <button
+                onClick={() => setThinkingOpen((v) => !v)}
+                className="w-full flex items-center gap-2.5 px-4 py-3 text-left cursor-pointer bg-transparent border-none"
+              >
+                <Sparkles size={14} className="text-lavender shrink-0" />
+                <span className="flex-1 text-[0.78rem] font-medium text-lavender">
+                  推理过程
+                </span>
+                <ChevronDown
+                  size={14}
+                  className={cn(
+                    "text-lavender/60 transition-transform shrink-0",
+                    thinkingOpen && "rotate-180",
+                  )}
+                />
+              </button>
+              {thinkingOpen && (
+                <div className="px-4 pb-4 border-t border-lavender/20">
+                  <p className="text-[0.75rem] text-text-secondary leading-relaxed whitespace-pre-wrap mt-3 font-mono">
+                    {planThinking}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         )}
 
         {/* Step list */}

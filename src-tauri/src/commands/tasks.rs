@@ -31,6 +31,12 @@ struct TaskPlanResult {
     shared_skills: Vec<String>,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct SmartPlanResult {
+    pub steps: Vec<TaskStep>,
+    pub thinking: Option<String>,
+}
+
 fn resolve_model_index_local(
     raw: &Option<String>,
     index_map: &[(String, String)],
@@ -792,7 +798,7 @@ pub async fn rerun_task(
 pub async fn smart_plan_task(
     pool: State<'_, SqlitePool>,
     task_id: String,
-) -> Result<Vec<TaskStep>, String> {
+) -> Result<SmartPlanResult, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
 
     let task: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?1")
@@ -1032,7 +1038,22 @@ pub async fn smart_plan_task(
         .and_then(|c| c.as_str())
         .ok_or_else(|| "模型返回数据格式异常，无法提取任务计划".to_string())?;
 
-    let cleaned = raw
+    // Extract <think>...</think> reasoning content (produced by reasoning models like MiniMax M2.5)
+    let thinking: Option<String> = if let (Some(s), Some(e)) = (raw.find("<think>"), raw.rfind("</think>")) {
+        let t = raw[s + "<think>".len()..e].trim().to_string();
+        if t.is_empty() { None } else { Some(t) }
+    } else {
+        None
+    };
+
+    // Strip the reasoning block so only the JSON remains
+    let after_think = if let Some(end) = raw.rfind("</think>") {
+        &raw[end + "</think>".len()..]
+    } else {
+        raw
+    };
+
+    let cleaned = after_think
         .trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
@@ -1040,7 +1061,7 @@ pub async fn smart_plan_task(
         .trim();
 
     let mut raw_value: serde_json::Value = serde_json::from_str(cleaned)
-        .map_err(|e| format!("解析 AI 返回的任务计划失败: {}", e))?;
+        .map_err(|e| format!("解析 AI 返回的任务计划失败: {}\n原始内容片段: {}", e, &cleaned.chars().take(200).collect::<String>()))?;
 
     if let Some(steps) = raw_value
         .get_mut("steps")
@@ -1168,13 +1189,15 @@ pub async fn smart_plan_task(
     .await
     .map_err(|e| e.to_string())?;
 
-    sqlx::query_as::<_, TaskStep>(
+    let steps = sqlx::query_as::<_, TaskStep>(
         "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
     )
     .bind(&task_id)
     .fetch_all(pool.inner())
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    Ok(SmartPlanResult { steps, thinking })
 }
 
 // ─── 多Agent对话：用户干预命令 ───────────────────────────────
