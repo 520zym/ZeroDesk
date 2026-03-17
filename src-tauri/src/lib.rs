@@ -1,4 +1,5 @@
 mod commands;
+mod context_builder;
 mod db;
 mod engine;
 mod models;
@@ -63,6 +64,9 @@ pub fn run() {
             tasks::list_task_runs,
             tasks::list_all_latest_task_runs,
             tasks::rerun_task,
+            tasks::send_user_message,
+            tasks::resume_execution,
+            tasks::adjust_direction,
             // agents
             agents::list_agents,
             agents::get_agent,

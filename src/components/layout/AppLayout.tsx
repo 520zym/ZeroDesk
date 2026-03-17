@@ -36,7 +36,7 @@ export function AppLayout() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const unlistenPromise = listen<ExecutionChunkPayload>("execution:chunk", (event) => {
+    const unlistenChunk = listen<ExecutionChunkPayload>("execution:chunk", (event) => {
       const p = event.payload;
       const taskId = p.task_id;
       const store = useStreamStore.getState();
@@ -65,8 +65,16 @@ export function AppLayout() {
       }
     });
 
+    const unlistenMessage = listen<{ task_id: string }>("execution:message", (event) => {
+      const taskId = event.payload.task_id;
+      queryClient.invalidateQueries({ queryKey: ["execution-messages", taskId] });
+      queryClient.invalidateQueries({ queryKey: ["task-runs", taskId] });
+      queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+    });
+
     return () => {
-      unlistenPromise.then((fn) => fn());
+      unlistenChunk.then((fn) => fn());
+      unlistenMessage.then((fn) => fn());
     };
   }, [queryClient]);
 

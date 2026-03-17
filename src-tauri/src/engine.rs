@@ -54,8 +54,8 @@ pub async fn run_task(
 
     if steps.is_empty() {
         create_message(
-            &pool, &task_id, run_id.as_deref(), "system", None, None,
-            "任务没有执行步骤，无法执行", "error", None,
+            &pool, &task_id, run_id.as_deref(), None, "system", None, None,
+            "任务没有执行步骤，无法执行", "error", None, None,
         )
         .await?;
         set_task_status(&pool, &task_id, "failed").await?;
@@ -66,9 +66,9 @@ pub async fn run_task(
     }
 
     create_message(
-        &pool, &task_id, run_id.as_deref(), "system", None, None,
+        &pool, &task_id, run_id.as_deref(), None, "system", None, None,
         &format!("任务开始执行 — 共 {} 个步骤", steps.len()),
-        "text", None,
+        "text", None, None,
     )
     .await?;
 
@@ -113,6 +113,26 @@ pub async fn run_task(
             continue;
         }
 
+        // 检查 task_run 暂停状态，暂停时轮询等待恢复
+        if let Some(ref rid) = run_id {
+            loop {
+                let run_status: Option<(String,)> = sqlx::query_as(
+                    "SELECT status FROM task_runs WHERE id = ?"
+                )
+                .bind(rid)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
+                match run_status {
+                    Some((ref s,)) if s == "paused" => {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                    Some((ref s,)) if s == "failed" || s == "completed" => return Ok(()),
+                    _ => break,
+                }
+            }
+        }
+
         let current: Task = sqlx::query_as("SELECT * FROM tasks WHERE id = ?1")
             .bind(&task_id)
             .fetch_one(&pool)
@@ -125,8 +145,8 @@ pub async fn run_task(
                 _ => "已终止",
             };
             create_message(
-                &pool, &task_id, run_id.as_deref(), "system", None, None,
-                &format!("任务{}", label), "text", None,
+                &pool, &task_id, run_id.as_deref(), None, "system", None, None,
+                &format!("任务{}", label), "text", None, None,
             )
             .await?;
             return Ok(());
@@ -166,7 +186,7 @@ pub async fn run_task(
         );
 
         create_message(
-            &pool, &task_id, run_id.as_deref(), "system", None, None,
+            &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
             &format!(
                 "▶ 步骤 {}/{} — {} ({})",
                 i + 1,
@@ -174,7 +194,7 @@ pub async fn run_task(
                 step.name,
                 agent_name
             ),
-            "text", None,
+            "text", None, None,
         )
         .await?;
 
@@ -183,8 +203,8 @@ pub async fn run_task(
                 Ok(info) => info,
                 Err(e) => {
                     create_message(
-                        &pool, &task_id, run_id.as_deref(), "system", None, None,
-                        &format!("无法解析模型: {}", e), "error", None,
+                        &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
+                        &format!("无法解析模型: {}", e), "error", None, None,
                     )
                     .await?;
                     sqlx::query("UPDATE task_steps SET status = 'failed' WHERE id = ?1")
@@ -254,13 +274,25 @@ pub async fn run_task(
                     "duration_ms": duration.as_millis() as i64,
                 });
 
-                create_message(
-                    &pool, &task_id, run_id.as_deref(), "agent",
+                let _msg_id = create_message(
+                    &pool, &task_id, run_id.as_deref(), Some(&step.id), "agent",
                     Some(agent_id), Some(agent_name),
-                    &content, "text",
+                    &content, "text", None,
                     Some(&metadata.to_string()),
                 )
                 .await?;
+
+                // 发出 execution:message 事件
+                let _ = app.emit("execution:message", serde_json::json!({
+                    "id": &_msg_id,
+                    "task_id": &task_id,
+                    "run_id": &run_id,
+                    "step_id": &step.id,
+                    "sender_type": "agent",
+                    "sender_id": agent_id,
+                    "sender_name": agent_name,
+                    "content_type": "text",
+                }));
 
                 previous_output = content;
 
@@ -300,7 +332,7 @@ pub async fn run_task(
                 }
 
                 create_message(
-                    &pool, &task_id, run_id.as_deref(), "system", None, None,
+                    &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
                     &format!(
                         "✓ 步骤 {}/{} 完成 — {} ({:.1}s, {} tokens)",
                         i + 1,
@@ -309,7 +341,7 @@ pub async fn run_task(
                         duration.as_secs_f64(),
                         step_tokens
                     ),
-                    "text", None,
+                    "text", None, None,
                 )
                 .await?;
 
@@ -327,9 +359,9 @@ pub async fn run_task(
             }
             Err(e) => {
                 create_message(
-                    &pool, &task_id, run_id.as_deref(), "system", None, None,
+                    &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
                     &format!("✗ 步骤 {}/{} 失败: {}", i + 1, steps.len(), e),
-                    "error", None,
+                    "error", None, None,
                 )
                 .await?;
 
@@ -367,14 +399,14 @@ pub async fn run_task(
     }
 
     create_message(
-        &pool, &task_id, run_id.as_deref(), "system", None, None,
+        &pool, &task_id, run_id.as_deref(), None, "system", None, None,
         &format!(
             "任务执行完成 — 共 {} 步, {} tokens, ¥{:.4}",
             steps.len(),
             total_tokens,
             total_cost
         ),
-        "text", None,
+        "text", None, None,
     )
     .await?;
 
@@ -482,7 +514,7 @@ fn build_user_prompt(
     p
 }
 
-async fn call_llm_streaming(
+pub async fn call_llm_streaming(
     app: &AppHandle,
     task_id: &str,
     step_id: &str,
@@ -648,31 +680,35 @@ async fn create_message(
     pool: &SqlitePool,
     task_id: &str,
     run_id: Option<&str>,
+    step_id: Option<&str>,
     sender_type: &str,
     sender_id: Option<&str>,
     sender_name: Option<&str>,
     content: &str,
     content_type: &str,
+    reply_to_id: Option<&str>,
     metadata_json: Option<&str>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO execution_messages (id, task_id, run_id, sender_type, sender_id, sender_name, content, content_type, metadata_json) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO execution_messages (id, task_id, run_id, step_id, sender_type, sender_id, sender_name, content, content_type, reply_to_id, metadata_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )
     .bind(&id)
     .bind(task_id)
     .bind(run_id)
+    .bind(step_id)
     .bind(sender_type)
     .bind(sender_id)
     .bind(sender_name)
     .bind(content)
     .bind(content_type)
+    .bind(reply_to_id)
     .bind(metadata_json)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(id)
 }
 
 async fn set_task_status(pool: &SqlitePool, task_id: &str, status: &str) -> Result<(), String> {

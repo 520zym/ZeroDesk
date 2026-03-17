@@ -128,6 +128,7 @@ pub struct Model {
     pub price_per_million_tokens: Option<f64>,
     pub status: Option<String>,
     pub enabled: i64,
+    pub context_window_tokens: Option<i32>,
     pub created_at: String,
 }
 
@@ -253,6 +254,8 @@ pub struct ExecutionMessage {
     pub content_type: Option<String>,
     pub metadata_json: Option<String>,
     pub run_id: Option<String>,
+    pub step_id: Option<String>,
+    pub reply_to_id: Option<String>,
     pub created_at: String,
 }
 
