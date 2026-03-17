@@ -162,6 +162,7 @@ export interface Model {
   price_per_million_tokens: number | null;
   status: string | null;
   enabled: number;
+  context_window_tokens: number | null;
   created_at: string;
 }
 
@@ -305,6 +306,8 @@ export interface ExecutionMessage {
   content_type: string | null;
   metadata_json: string | null;
   run_id: string | null;
+  step_id: string | null;
+  reply_to_id: string | null;
   created_at: string;
 }
 

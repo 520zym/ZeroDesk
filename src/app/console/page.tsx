@@ -1,11 +1,10 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   Pause,
   Play,
   RotateCcw,
   Square,
   Download,
-  Send,
   Clock,
   Cpu,
   DollarSign,
@@ -29,14 +28,19 @@ import {
   useTaskSteps,
   useTaskRuns,
   useExecutionMessages,
-  useCreateExecutionMessage,
   useUpdateTaskStatus,
   useTasks,
   useStartTaskExecution,
+  useSendUserMessage,
+  useResumeExecution,
+  useAdjustDirection,
 } from "@/hooks/useTasks";
 import { useAgents } from "@/hooks/useAgents";
 import { useStreamStore } from "@/stores/useStreamStore";
-import type { Agent, TaskStep } from "@/types";
+import QuoteBlock from "./components/QuoteBlock";
+import ChatInput from "./components/ChatInput";
+import PauseControl from "./components/PauseControl";
+import type { Agent, TaskStep, ExecutionMessage } from "@/types";
 
 const AGENT_STATUS_STYLE = {
   done: { dot: "bg-success", ring: "ring-success/20" },
@@ -204,11 +208,34 @@ export default function ConsolePage() {
   const { data: messages } = useExecutionMessages(runsReady ? taskId : undefined, { runId: activeRunId });
   const { data: agents } = useAgents();
 
-  const createMessage = useCreateExecutionMessage();
+  const sendUserMessage = useSendUserMessage();
+  const resumeExecution = useResumeExecution();
+  const adjustDirection = useAdjustDirection();
   const updateStatus = useUpdateTaskStatus();
   const startExecution = useStartTaskExecution();
 
   const streamingData = useStreamStore((s) => (taskId ? s.streams[taskId] : undefined)) ?? null;
+
+  const messageMap = useMemo(() => {
+    const map = new Map<string, ExecutionMessage>();
+    messages?.forEach((msg) => map.set(msg.id, msg));
+    return map;
+  }, [messages]);
+
+  const taskAgents = useMemo(() => {
+    if (!agents || !steps) return [];
+    const agentIds = new Set(steps.map((s) => s.agent_id).filter(Boolean));
+    return agents.filter((a) => agentIds.has(a.id));
+  }, [agents, steps]);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-primary/40");
+      setTimeout(() => el.classList.remove("ring-2", "ring-primary/40"), 2000);
+    }
+  }, []);
 
   const activeRun = useMemo(() => {
     if (!taskRuns || !activeRunId) return null;
@@ -218,7 +245,6 @@ export default function ConsolePage() {
   const isViewingLatest = activeRunId === latestRunId;
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState("");
   const [taskSelectorOpen, setTaskSelectorOpen] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const prevMsgCount = useRef(0);
@@ -333,19 +359,31 @@ export default function ConsolePage() {
     return () => clearInterval(timer);
   }, [task, activeRun]);
 
-  function handleSend() {
-    const text = inputValue.trim();
-    if (!text || !taskId) return;
-    createMessage.mutate({
-      taskId,
-      senderType: "human",
-      senderName: "用户",
-      content: text,
-      contentType: "text",
-      runId: activeRunId ?? undefined,
-    });
-    setInputValue("");
-  }
+  const handleChatSend = useCallback(
+    (content: string, mentionAgentId: string | null) => {
+      if (!taskId || !activeRunId) return;
+      sendUserMessage.mutate({
+        taskId,
+        runId: activeRunId,
+        content,
+        mentionAgentId,
+      });
+    },
+    [taskId, activeRunId, sendUserMessage],
+  );
+
+  const handleResume = useCallback(() => {
+    if (!taskId || !activeRunId) return;
+    resumeExecution.mutate({ taskId, runId: activeRunId });
+  }, [taskId, activeRunId, resumeExecution]);
+
+  const handleAdjust = useCallback(
+    (instruction: string) => {
+      if (!taskId || !activeRunId) return;
+      adjustDirection.mutate({ taskId, runId: activeRunId, instruction });
+    },
+    [taskId, activeRunId, adjustDirection],
+  );
 
   function handleTogglePause() {
     if (!taskId) return;
@@ -600,7 +638,8 @@ export default function ConsolePage() {
               return (
                 <div
                   key={msg.id}
-                  className="flex items-start gap-3 max-w-[680px] ml-auto flex-row-reverse"
+                  id={`msg-${msg.id}`}
+                  className="flex items-start gap-3 max-w-[680px] ml-auto flex-row-reverse transition-all"
                   style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
                 >
                   <div className="w-7 h-7 rounded-full bg-lavender-light flex items-center justify-center mt-0.5 shrink-0">
@@ -612,6 +651,12 @@ export default function ConsolePage() {
                       <span className="text-[0.75rem] font-medium text-text">{msg.sender_name ?? "用户"}</span>
                     </div>
                     <div className="bg-primary-light rounded-xl rounded-tr-sm px-4 py-3 border border-primary/10">
+                      {msg.reply_to_id && (
+                        <QuoteBlock
+                          quotedMessage={messageMap.get(msg.reply_to_id)}
+                          onClickQuote={scrollToMessage}
+                        />
+                      )}
                       <p className="text-[0.78rem] text-text-secondary leading-relaxed">{msg.content}</p>
                     </div>
                   </div>
@@ -629,7 +674,8 @@ export default function ConsolePage() {
             return (
               <div
                 key={msg.id}
-                className="flex items-start gap-3 max-w-[680px]"
+                id={`msg-${msg.id}`}
+                className="flex items-start gap-3 max-w-[680px] transition-all"
                 style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
               >
                 <Avatar char={avatarChar} color={avatarColor} size="sm" className="mt-0.5 shrink-0" />
@@ -639,6 +685,12 @@ export default function ConsolePage() {
                     <span className="text-[0.62rem] text-text-muted">{formatTime(msg.created_at)}</span>
                   </div>
                   <div className="bg-surface rounded-xl rounded-tl-sm px-4 py-3 border border-border-light">
+                    {msg.reply_to_id && (
+                      <QuoteBlock
+                        quotedMessage={messageMap.get(msg.reply_to_id)}
+                        onClickQuote={scrollToMessage}
+                      />
+                    )}
                     {!table && (
                       <MarkdownContent
                         content={msg.content}
@@ -747,29 +799,15 @@ export default function ConsolePage() {
         </div>
 
         {/* Bottom input */}
+        {isPaused && (
+          <PauseControl visible onResume={handleResume} onAdjust={handleAdjust} />
+        )}
         {isActive ? (
-          <div className="px-4 py-3 border-t border-border-light bg-surface/80 backdrop-blur-sm">
-            <div className="flex items-center gap-2 max-w-[680px]">
-              <input
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder="输入消息，向 Agent 发送指令..."
-                className="flex-1 px-3.5 py-2 rounded-lg border border-border-light bg-bg text-[0.82rem] text-text placeholder:text-text-muted focus:outline-none focus:border-primary/30 focus:ring-2 focus:ring-primary/10 transition-all"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-              />
-              <button
-                onClick={handleSend}
-                className="w-9 h-9 rounded-lg bg-primary text-white flex items-center justify-center cursor-pointer hover:bg-primary-hover transition-colors shrink-0"
-              >
-                <Send size={15} />
-              </button>
-            </div>
-          </div>
+          <ChatInput
+            agents={taskAgents}
+            disabled={isPaused}
+            onSend={handleChatSend}
+          />
         ) : (
           <div className="px-4 py-2.5 border-t border-border-light bg-surface/60 text-center">
             <span className="text-[0.75rem] text-text-muted">

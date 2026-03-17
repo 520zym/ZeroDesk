@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{Agent, ExecutionMessage, Task, TaskRun, TaskStats, TaskStep, TaskStepSummary};
@@ -1175,4 +1175,240 @@ pub async fn smart_plan_task(
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())
+}
+
+// ─── 多Agent对话：用户干预命令 ───────────────────────────────
+
+/// 用户发送消息并暂停执行
+#[tauri::command]
+pub async fn send_user_message(
+    pool: State<'_, SqlitePool>,
+    app: tauri::AppHandle,
+    task_id: String,
+    run_id: String,
+    content: String,
+    mention_agent_id: Option<String>,
+    reply_to_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    // 1. 暂停执行
+    sqlx::query("UPDATE task_runs SET status = 'paused' WHERE id = ?1 AND status = 'running'")
+        .bind(&run_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 2. 创建用户消息
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO execution_messages (id, task_id, run_id, sender_type, sender_name, content, content_type, reply_to_id)
+         VALUES (?1, ?2, ?3, 'human', '你', ?4, 'text', ?5)"
+    )
+    .bind(&msg_id)
+    .bind(&task_id)
+    .bind(&run_id)
+    .bind(&content)
+    .bind(&reply_to_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // 3. 发出消息事件
+    let _ = app.emit("execution:message", serde_json::json!({
+        "id": &msg_id,
+        "task_id": &task_id,
+        "run_id": &run_id,
+        "sender_type": "human",
+        "content_type": "text",
+        "reply_to_id": &reply_to_id,
+    }));
+
+    // 4. 如果 @了某个 Agent，异步触发回复
+    if let Some(ref agent_id) = mention_agent_id {
+        let agent: Option<Agent> = sqlx::query_as("SELECT * FROM agents WHERE id = ?1")
+            .bind(agent_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if let Some(agent) = agent {
+            let pool_clone = pool.inner().clone();
+            let app_clone = app.clone();
+            let task_id_c = task_id.clone();
+            let run_id_c = run_id.clone();
+            let content_c = content.clone();
+            let msg_id_c = msg_id.clone();
+
+            tauri::async_runtime::spawn(async move {
+                let resolve_result = crate::engine::resolve_model(&pool_clone, &Some(agent.clone())).await;
+                let (model_name, base_url, api_key, _price) = match resolve_result {
+                    Ok(info) => info,
+                    Err(e) => {
+                        tracing::error!("Agent reply model resolve failed: {}", e);
+                        return;
+                    }
+                };
+
+                let system_prompt = agent.system_prompt.as_deref().unwrap_or("你是一个专业的AI助手。");
+
+                let recent: Vec<(String, String, Option<String>)> = sqlx::query_as(
+                    "SELECT sender_type, content, sender_name FROM execution_messages
+                     WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at DESC LIMIT 5"
+                )
+                .bind(&task_id_c)
+                .bind(&run_id_c)
+                .fetch_all(&pool_clone)
+                .await
+                .unwrap_or_default();
+
+                let mut context_parts = Vec::new();
+                for (st, c, sn) in recent.iter().rev() {
+                    let name = sn.as_deref().unwrap_or(if st == "agent" { "Agent" } else { "用户" });
+                    context_parts.push(format!("[{}] {}", name, c));
+                }
+                let user_prompt = format!(
+                    "以下是最近的对话：\n{}\n\n用户现在对你说：{}\n\n请回复用户的问题。",
+                    context_parts.join("\n"),
+                    &content_c
+                );
+
+                let result = crate::engine::call_llm_streaming(
+                    &app_clone, &task_id_c, "", &agent.id, &agent.name,
+                    &model_name, &base_url, &api_key,
+                    system_prompt, &user_prompt,
+                ).await;
+
+                match result {
+                    Ok((reply_content, thinking, tok_in, tok_out)) => {
+                        let reply_id = uuid::Uuid::new_v4().to_string();
+                        let metadata = serde_json::json!({
+                            "thinking": if thinking.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(thinking) },
+                            "model": &model_name,
+                            "tokens_input": tok_in,
+                            "tokens_output": tok_out,
+                        });
+
+                        let _ = sqlx::query(
+                            "INSERT INTO execution_messages (id, task_id, run_id, sender_type, sender_id, sender_name, content, content_type, reply_to_id, metadata_json)
+                             VALUES (?1, ?2, ?3, 'agent', ?4, ?5, ?6, 'text', ?7, ?8)"
+                        )
+                        .bind(&reply_id)
+                        .bind(&task_id_c)
+                        .bind(&run_id_c)
+                        .bind(&agent.id)
+                        .bind(&agent.name)
+                        .bind(&reply_content)
+                        .bind(&msg_id_c)
+                        .bind(&metadata.to_string())
+                        .execute(&pool_clone)
+                        .await;
+
+                        let _ = app_clone.emit("execution:message", serde_json::json!({
+                            "id": &reply_id,
+                            "task_id": &task_id_c,
+                            "run_id": &run_id_c,
+                            "sender_type": "agent",
+                            "sender_id": &agent.id,
+                            "sender_name": &agent.name,
+                            "reply_to_id": &msg_id_c,
+                            "content_type": "text",
+                        }));
+                    }
+                    Err(e) => {
+                        tracing::error!("Agent reply failed: {}", e);
+                    }
+                }
+            });
+        }
+    }
+
+    Ok(serde_json::json!({ "message_id": msg_id, "status": "paused" }))
+}
+
+/// 恢复执行
+#[tauri::command]
+pub async fn resume_execution(
+    pool: State<'_, SqlitePool>,
+    app: tauri::AppHandle,
+    task_id: String,
+    run_id: String,
+) -> Result<serde_json::Value, String> {
+    sqlx::query("UPDATE task_runs SET status = 'running' WHERE id = ?1 AND status = 'paused'")
+        .bind(&run_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO execution_messages (id, task_id, run_id, sender_type, content, content_type)
+         VALUES (?1, ?2, ?3, 'system', '执行已恢复', 'text')"
+    )
+    .bind(&msg_id)
+    .bind(&task_id)
+    .bind(&run_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let _ = app.emit("execution:message", serde_json::json!({
+        "id": &msg_id,
+        "task_id": &task_id,
+        "run_id": &run_id,
+        "sender_type": "system",
+        "content_type": "text",
+    }));
+
+    Ok(serde_json::json!({ "status": "running" }))
+}
+
+/// 调整方向 - 用户提供文字指示，注入后续步骤 prompt
+#[tauri::command]
+pub async fn adjust_direction(
+    pool: State<'_, SqlitePool>,
+    app: tauri::AppHandle,
+    task_id: String,
+    run_id: String,
+    instruction: String,
+) -> Result<serde_json::Value, String> {
+    let msg_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO execution_messages (id, task_id, run_id, sender_type, sender_name, content, content_type)
+         VALUES (?1, ?2, ?3, 'human', '你', ?4, 'text')"
+    )
+    .bind(&msg_id)
+    .bind(&task_id)
+    .bind(&run_id)
+    .bind(&format!("📌 方向调整：{}", &instruction))
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let sys_msg_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO execution_messages (id, task_id, run_id, sender_type, content, content_type)
+         VALUES (?1, ?2, ?3, 'system', ?4, 'text')"
+    )
+    .bind(&sys_msg_id)
+    .bind(&task_id)
+    .bind(&run_id)
+    .bind(&format!("方向已调整，后续步骤将遵循新指示：{}", &instruction))
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query("UPDATE task_runs SET status = 'running' WHERE id = ?1 AND status = 'paused'")
+        .bind(&run_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit("execution:message", serde_json::json!({
+        "id": &sys_msg_id,
+        "task_id": &task_id,
+        "run_id": &run_id,
+        "sender_type": "system",
+        "content_type": "text",
+    }));
+
+    Ok(serde_json::json!({ "status": "running", "instruction": instruction }))
 }

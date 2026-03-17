@@ -306,3 +306,96 @@ export function useSmartPlanTask() {
     },
   });
 }
+
+export function useSendUserMessage() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: {
+      taskId: string;
+      runId: string;
+      content: string;
+      mentionAgentId?: string | null;
+      replyToId?: string | null;
+    }) =>
+      tauriInvoke<unknown>("send_user_message", {
+        taskId: params.taskId,
+        runId: params.runId,
+        content: params.content,
+        mentionAgentId: params.mentionAgentId ?? null,
+        replyToId: params.replyToId ?? null,
+      }),
+    onMutate: async (variables) => {
+      // 乐观更新：立即在消息列表末尾加入用户消息
+      const key = ["execution-messages", variables.taskId, variables.runId];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<unknown[]>(key);
+      if (prev) {
+        qc.setQueryData(key, [
+          ...prev,
+          {
+            id: `optimistic-${Date.now()}`,
+            task_id: variables.taskId,
+            run_id: variables.runId,
+            step_id: null,
+            sender_type: "human",
+            sender_id: null,
+            sender_name: "你",
+            content: variables.content,
+            content_type: "text",
+            reply_to_id: variables.replyToId ?? null,
+            metadata_json: null,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+      return { prev, key };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(ctx.key, ctx.prev);
+    },
+    onSettled: (_data, _err, variables) => {
+      qc.invalidateQueries({ queryKey: ["execution-messages", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task-runs", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task", variables.taskId] });
+    },
+  });
+}
+
+export function useResumeExecution() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskId: string; runId: string }) =>
+      tauriInvoke<unknown>("resume_execution", {
+        taskId: params.taskId,
+        runId: params.runId,
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["execution-messages", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task-runs", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["tasks", "running"] });
+    },
+  });
+}
+
+export function useAdjustDirection() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { taskId: string; runId: string; instruction: string }) =>
+      tauriInvoke<unknown>("adjust_direction", {
+        taskId: params.taskId,
+        runId: params.runId,
+        instruction: params.instruction,
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["execution-messages", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task-runs", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["task", variables.taskId] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+}
