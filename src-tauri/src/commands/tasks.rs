@@ -1,5 +1,5 @@
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{Agent, ExecutionMessage, Task, TaskRun, TaskStats, TaskStep, TaskStepSummary};
