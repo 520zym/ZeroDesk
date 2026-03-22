@@ -1450,3 +1450,171 @@ pub async fn adjust_direction(
 
     Ok(serde_json::json!({ "status": "running", "instruction": instruction }))
 }
+
+// ─── 重新生成：让 Agent 重新回答某条消息 ──────────────────────
+
+/// 对某条 agent 消息重新生成回复，支持多次重生并通过 regen_group/regen_index 版本切换
+#[tauri::command]
+pub async fn regenerate_message(
+    pool: State<'_, SqlitePool>,
+    app: tauri::AppHandle,
+    message_id: String,
+) -> Result<serde_json::Value, String> {
+    use crate::models::Agent;
+
+    // 1. 查询原消息，确认是 agent 消息
+    let orig: Option<crate::models::ExecutionMessage> =
+        sqlx::query_as("SELECT * FROM execution_messages WHERE id = ?1")
+            .bind(&message_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+
+    let orig = orig.ok_or_else(|| "消息不存在".to_string())?;
+    if orig.sender_type != "agent" {
+        return Err("只能重新生成 agent 消息".to_string());
+    }
+    let agent_id = orig.sender_id.as_deref().ok_or("消息缺少 sender_id")?;
+    let task_id = orig.task_id.clone();
+    let run_id = orig.run_id.clone().unwrap_or_default();
+
+    // 2. 确定 regen_group：若原消息已有分组则沿用，否则以原消息 ID 作为分组
+    let group_id = match &orig.regen_group {
+        Some(g) => g.clone(),
+        None => {
+            // 首次重新生成：原消息设为 index 0 并建立分组
+            sqlx::query(
+                "UPDATE execution_messages SET regen_group = ?1, regen_index = 0 WHERE id = ?2"
+            )
+            .bind(&message_id)
+            .bind(&message_id)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+            message_id.clone()
+        }
+    };
+
+    // 3. 查询当前组内最大 regen_index
+    let max_index: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(regen_index), 0) FROM execution_messages WHERE regen_group = ?1"
+    )
+    .bind(&group_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+    let new_index = max_index + 1;
+
+    // 4. 查询该 Agent
+    let agent: Option<Agent> = sqlx::query_as("SELECT * FROM agents WHERE id = ?1")
+        .bind(agent_id)
+        .fetch_optional(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    let agent = agent.ok_or_else(|| format!("Agent {} 不存在", agent_id))?;
+
+    // 5. 解析模型配置
+    let (model_name, base_url, api_key, _price) =
+        crate::engine::resolve_model(pool.inner(), &Some(agent.clone()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+    // 提前 clone system_prompt，避免跨 async 边界借用问题
+    let system_prompt_owned = agent.system_prompt.clone().unwrap_or_else(|| "你是一个专业的AI助手。".to_string());
+
+    // 6. 取最近上下文（同 send_user_message 逻辑）
+    let recent: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT sender_type, content, sender_name FROM execution_messages
+         WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at DESC LIMIT 5"
+    )
+    .bind(&task_id)
+    .bind(&run_id)
+    .fetch_all(pool.inner())
+    .await
+    .unwrap_or_default();
+
+    let mut context_parts = Vec::new();
+    for (st, c, sn) in recent.iter().rev() {
+        let name = sn.as_deref().unwrap_or(if st == "agent" { "Agent" } else { "用户" });
+        context_parts.push(format!("[{}] {}", name, c));
+    }
+    let user_prompt = format!(
+        "以下是最近的对话：\n{}\n\n请重新生成你的回复，提供更好的答案。",
+        context_parts.join("\n")
+    );
+
+    // 7. 克隆需要跨 async 边界的变量，异步调用 LLM
+    let pool_clone = pool.inner().clone();
+    let app_clone = app.clone();
+    let task_id_c = task_id.clone();
+    let run_id_c = run_id.clone();
+    let group_id_c = group_id.clone();
+    let agent_c = agent.clone();
+    let model_name_c = model_name.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let result = crate::engine::call_llm_streaming(
+            &app_clone, &task_id_c, "", &agent_c.id, &agent_c.name,
+            &model_name_c, &base_url, &api_key,
+            &system_prompt_owned, &user_prompt,
+        ).await;
+
+        match result {
+            Ok((reply_content, thinking, tok_in, tok_out)) => {
+                let reply_id = uuid::Uuid::new_v4().to_string();
+                let metadata = serde_json::json!({
+                    "thinking": if thinking.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(thinking) },
+                    "model": &model_name_c,
+                    "tokens_input": tok_in,
+                    "tokens_output": tok_out,
+                });
+
+                let _ = sqlx::query(
+                    "INSERT INTO execution_messages
+                     (id, task_id, run_id, sender_type, sender_id, sender_name, content, content_type, metadata_json, regen_group, regen_index)
+                     VALUES (?1, ?2, ?3, 'agent', ?4, ?5, ?6, 'text', ?7, ?8, ?9)"
+                )
+                .bind(&reply_id)
+                .bind(&task_id_c)
+                .bind(&run_id_c)
+                .bind(&agent_c.id)
+                .bind(&agent_c.name)
+                .bind(&reply_content)
+                .bind(&metadata.to_string())
+                .bind(&group_id_c)
+                .bind(new_index)
+                .execute(&pool_clone)
+                .await;
+
+                let _ = app_clone.emit("execution:message", serde_json::json!({
+                    "id": &reply_id,
+                    "task_id": &task_id_c,
+                    "run_id": &run_id_c,
+                    "sender_type": "agent",
+                    "sender_id": &agent_c.id,
+                    "sender_name": &agent_c.name,
+                    "content_type": "text",
+                    "regen_group": &group_id_c,
+                    "regen_index": new_index,
+                }));
+                let _ = app_clone.emit("execution:chunk", serde_json::json!({
+                    "task_id": &task_id_c,
+                    "step_id": "",
+                    "agent_id": &agent_c.id,
+                    "agent_name": &agent_c.name,
+                    "chunk_type": "step_done",
+                    "chunk": "",
+                }));
+            }
+            Err(e) => {
+                tracing::error!("Regenerate message failed: {}", e);
+            }
+        }
+    });
+
+    Ok(serde_json::json!({
+        "status": "regenerating",
+        "regen_group": group_id,
+        "new_index": new_index,
+    }))
+}

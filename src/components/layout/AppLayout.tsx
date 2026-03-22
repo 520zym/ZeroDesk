@@ -35,6 +35,15 @@ export function AppLayout() {
   const title = getTitle(location.pathname);
   const queryClient = useQueryClient();
 
+  // 全局禁用 WebView 默认右键菜单（Back/Reload/Inspect Element）
+  // 使用 capture:true 在捕获阶段最早 preventDefault，覆盖 WKWebView 原生菜单
+  // React onContextMenu 仍会触发（preventDefault 不阻止事件传播）
+  useEffect(() => {
+    const prevent = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener('contextmenu', prevent, { capture: true });
+    return () => document.removeEventListener('contextmenu', prevent, { capture: true });
+  }, []);
+
   useEffect(() => {
     const unlistenChunk = listen<ExecutionChunkPayload>("execution:chunk", (event) => {
       const p = event.payload;

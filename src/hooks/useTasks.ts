@@ -367,6 +367,18 @@ export function useSendUserMessage() {
   });
 }
 
+export function useRegenerateMessage() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { messageId: string; taskId: string }) =>
+      tauriInvoke<unknown>("regenerate_message", { messageId: params.messageId }),
+    onSettled: (_data, _err, variables) => {
+      qc.invalidateQueries({ queryKey: ["execution-messages", variables.taskId] });
+    },
+  });
+}
+
 export function useResumeExecution() {
   const qc = useQueryClient();
 

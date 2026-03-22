@@ -308,6 +308,8 @@ export interface ExecutionMessage {
   run_id: string | null;
   step_id: string | null;
   reply_to_id: string | null;
+  regen_group: string | null;
+  regen_index: number | null;
   created_at: string;
 }
 

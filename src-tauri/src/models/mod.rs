@@ -256,6 +256,8 @@ pub struct ExecutionMessage {
     pub run_id: Option<String>,
     pub step_id: Option<String>,
     pub reply_to_id: Option<String>,
+    pub regen_group: Option<String>,
+    pub regen_index: Option<i64>,
     pub created_at: String,
 }
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Reply, Copy, BookmarkPlus, ListPlus, Info } from "lucide-react";
+import { Reply, Copy, BookmarkPlus, ListPlus, Info, RefreshCw, Forward } from "lucide-react";
 import { ExecutionMessage } from "@/types";
 
 interface MessageContextMenuProps {
@@ -11,6 +11,8 @@ interface MessageContextMenuProps {
   onSaveKnowledge: () => void;
   onCreateTask: () => void;
   onViewMetadata: (pos: { x: number; y: number }) => void;
+  onRegenerate: () => void;
+  onForward: () => void;
 }
 
 // 控制台消息右键菜单组件
@@ -23,6 +25,8 @@ export default function MessageContextMenu({
   onSaveKnowledge,
   onCreateTask,
   onViewMetadata,
+  onRegenerate,
+  onForward,
 }: MessageContextMenuProps) {
   const [copied, setCopied] = useState(false);
 
@@ -30,9 +34,6 @@ export default function MessageContextMenu({
     msg.sender_type === "human" || msg.sender_type === "agent";
   const isAgent = msg.sender_type === "agent";
   const hasMetadata = msg.metadata_json != null;
-
-  // 判断第二条分隔线是否需要显示（"创建为任务"或"查看详情"至少一项可见）
-  const showSecondDivider = isAgent;
 
   // 处理复制内容：延迟 300ms 后关闭菜单，期间显示"已复制 ✓"
   const handleCopy = (e: React.MouseEvent) => {
@@ -61,7 +62,7 @@ export default function MessageContextMenu({
 
   return (
     <div
-      className="fixed z-[100] bg-surface border border-border-light rounded-lg shadow-lg py-1 min-w-[140px]"
+      className="fixed z-[100] bg-surface border border-border-light rounded-lg shadow-lg py-1 min-w-[148px]"
       style={{ left: position.x, top: position.y }}
       onClick={(e) => e.stopPropagation()}
     >
@@ -76,16 +77,14 @@ export default function MessageContextMenu({
         </button>
       )}
 
-      {/* 复制内容：human + agent 显示 */}
-      {isHumanOrAgent && (
-        <button
-          className="w-full flex items-center gap-2 px-3 py-2 text-[0.78rem] text-text hover:bg-bg-alt transition-colors cursor-pointer"
-          onClick={handleCopy}
-        >
-          <Copy size={14} className="text-text-muted" />
-          {copied ? "已复制 ✓" : "复制内容"}
-        </button>
-      )}
+      {/* 复制内容：所有消息类型都显示 */}
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-[0.78rem] text-text hover:bg-bg-alt transition-colors cursor-pointer"
+        onClick={handleCopy}
+      >
+        <Copy size={14} className="text-text-muted" />
+        {copied ? "已复制 ✓" : "复制内容"}
+      </button>
 
       {/* 第一条分隔线 */}
       {isHumanOrAgent && <div className="h-px bg-border-light/60 my-1" />}
@@ -112,8 +111,30 @@ export default function MessageContextMenu({
         </button>
       )}
 
-      {/* 第二条分隔线：仅当"创建为任务"和"查看详情"至少一项可见时显示 */}
-      {showSecondDivider && <div className="h-px bg-border-light/60 my-1" />}
+      {/* 第二条分隔线：agent 消息才有后续操作项 */}
+      {isAgent && <div className="h-px bg-border-light/60 my-1" />}
+
+      {/* 重新生成：仅 agent 显示 */}
+      {isAgent && (
+        <button
+          className="w-full flex items-center gap-2 px-3 py-2 text-[0.78rem] text-text hover:bg-bg-alt transition-colors cursor-pointer"
+          onClick={(e) => handleMenuAction(e, onRegenerate)}
+        >
+          <RefreshCw size={14} className="text-text-muted" />
+          重新生成
+        </button>
+      )}
+
+      {/* 转发给：仅 agent 显示 */}
+      {isAgent && (
+        <button
+          className="w-full flex items-center gap-2 px-3 py-2 text-[0.78rem] text-text hover:bg-bg-alt transition-colors cursor-pointer"
+          onClick={(e) => handleMenuAction(e, onForward)}
+        >
+          <Forward size={14} className="text-text-muted" />
+          转发给...
+        </button>
+      )}
 
       {/* 查看详情：仅 agent 且 metadata_json 不为 null 时显示 */}
       {isAgent && hasMetadata && (

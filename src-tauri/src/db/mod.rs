@@ -19,6 +19,7 @@ const MIGRATION_011_SQL: &str = include_str!("migrations/011_knowledge_folders.s
 const MIGRATION_012_SQL: &str = include_str!("migrations/012_agent_conversation.sql");
 const MIGRATION_013_SQL: &str = include_str!("migrations/013_fix_duplicate_runs.sql");
 const MIGRATION_014_SQL: &str = include_str!("migrations/014_global_search_fts.sql");
+const MIGRATION_015_SQL: &str = include_str!("migrations/015_regenerate.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -53,6 +54,27 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
                     Ok(_) => {}
                     Err(e) if e.to_string().contains("duplicate column") => {
                         tracing::debug!("Skipping already-applied migration: {}", e);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+    }
+
+    // 015 迁移：execution_messages 新增 regen_group/regen_index 字段（简单 ALTER TABLE）
+    for sql in [MIGRATION_015_SQL] {
+        let stripped: String = sql
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for statement in stripped.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                match sqlx::query(trimmed).execute(&pool).await {
+                    Ok(_) => {}
+                    Err(e) if e.to_string().contains("duplicate column") || e.to_string().contains("already exists") => {
+                        tracing::debug!("Migration 015 already applied: {}", e);
                     }
                     Err(e) => return Err(e),
                 }

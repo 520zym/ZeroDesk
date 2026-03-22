@@ -19,6 +19,26 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             use tauri::Manager;
+
+            // 在 Rust 端手动创建主窗口，注入初始化脚本以禁用 WKWebView 原生右键菜单。
+            // tauri.conf.json 中已移除 windows 声明，避免重复创建。
+            // initialization_script 在页面 JS 执行前注入，比 React useEffect 更早，
+            // 能可靠阻止 WKWebView 原生层（NSView）的 contextmenu 拦截。
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("ZeroDesk")
+            .inner_size(1280.0, 800.0)
+            .min_inner_size(1024.0, 700.0)
+            .center()
+            .decorations(true)
+            .initialization_script(
+                "document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, { capture: true });",
+            )
+            .build()?;
+
             let app_data_dir = app.path().app_data_dir().expect("failed to resolve app data dir");
 
             let pool = tauri::async_runtime::block_on(async {
@@ -67,6 +87,7 @@ pub fn run() {
             tasks::send_user_message,
             tasks::resume_execution,
             tasks::adjust_direction,
+            tasks::regenerate_message,
             // agents
             agents::list_agents,
             agents::get_agent,

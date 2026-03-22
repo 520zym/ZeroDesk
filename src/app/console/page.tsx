@@ -37,6 +37,7 @@ import {
   useSendUserMessage,
   useResumeExecution,
   useAdjustDirection,
+  useRegenerateMessage,
 } from "@/hooks/useTasks";
 import { useAgents } from "@/hooks/useAgents";
 import { useStreamStore } from "@/stores/useStreamStore";
@@ -46,6 +47,8 @@ import PauseControl from "./components/PauseControl";
 import MessageContextMenu from "./components/MessageContextMenu";
 import SaveToKnowledgeModal from "./components/SaveToKnowledgeModal";
 import CreateTaskModal from "./components/CreateTaskModal";
+import RegenSwitcher from "./components/RegenSwitcher";
+import ForwardMessageModal from "./components/ForwardMessageModal";
 import type { Agent, TaskStep, ExecutionMessage } from "@/types";
 
 const AGENT_STATUS_STYLE = {
@@ -219,6 +222,7 @@ export default function ConsolePage() {
   const adjustDirection = useAdjustDirection();
   const updateStatus = useUpdateTaskStatus();
   const startExecution = useStartTaskExecution();
+  const regenerateMessage = useRegenerateMessage();
 
   const streamingData = useStreamStore((s) => (taskId ? s.streams[taskId] : undefined)) ?? null;
 
@@ -228,6 +232,10 @@ export default function ConsolePage() {
   const [saveKnowledgeMsg, setSaveKnowledgeMsg] = useState<ExecutionMessage | null>(null);
   const [createTaskMsg, setCreateTaskMsg] = useState<ExecutionMessage | null>(null);
   const [metadataPopover, setMetadataPopover] = useState<{ x: number; y: number; msg: ExecutionMessage } | null>(null);
+  // 转发弹窗状态
+  const [forwardMsg, setForwardMsg] = useState<ExecutionMessage | null>(null);
+  // 每个 regen_group 当前选中的版本索引（key: group_id, value: 当前显示的 index）
+  const [regenSelected, setRegenSelected] = useState<Record<string, number>>({});
 
   // ctxMenu close 只监听 click，不监听 contextmenu
   // （监听 contextmenu 会导致右键打开菜单的同一事件立刻将其关闭）
@@ -250,6 +258,41 @@ export default function ConsolePage() {
     messages?.forEach((msg) => map.set(msg.id, msg));
     return map;
   }, [messages]);
+
+  // 按 regen_group 分组消息，同组消息按 regen_index 排序
+  const regenGroupMap = useMemo(() => {
+    const map = new Map<string, ExecutionMessage[]>();
+    messages?.forEach((msg) => {
+      if (msg.regen_group) {
+        const group = map.get(msg.regen_group) ?? [];
+        group.push(msg);
+        map.set(msg.regen_group, group);
+      }
+    });
+    map.forEach((group) => group.sort((a, b) => (a.regen_index ?? 0) - (b.regen_index ?? 0)));
+    return map;
+  }, [messages]);
+
+  // 过滤消息列表：同一 regen_group 只保留一个代表（渲染时再换成选中版本）
+  const visibleMessages = useMemo(() => {
+    if (!messages) return [];
+    const processedGroups = new Set<string>();
+    return messages
+      .filter((msg) => {
+        if (!msg.regen_group) return true;
+        if (processedGroups.has(msg.regen_group)) return false;
+        processedGroups.add(msg.regen_group);
+        return true;
+      })
+      .map((msg) => {
+        if (!msg.regen_group) return msg;
+        const group = regenGroupMap.get(msg.regen_group);
+        if (!group) return msg;
+        // 默认显示最新版本，或用户选中的版本
+        const selectedIdx = regenSelected[msg.regen_group] ?? group.length - 1;
+        return group[selectedIdx] ?? msg;
+      });
+  }, [messages, regenGroupMap, regenSelected]);
 
   const taskAgents = useMemo(() => {
     if (!agents || !steps) return [];
@@ -435,6 +478,24 @@ export default function ConsolePage() {
       adjustDirection.mutate({ taskId, runId: activeRunId, instruction });
     },
     [taskId, activeRunId, adjustDirection],
+  );
+
+  // 转发消息给指定 Agent
+  const handleForward = useCallback(
+    (agentId: string, instruction: string, originalMsg: ExecutionMessage) => {
+      if (!taskId || !activeRunId) return;
+      const content = instruction.trim()
+        ? `[转发消息]\n${originalMsg.content}\n\n[指令]\n${instruction}`
+        : `[转发消息]\n${originalMsg.content}`;
+      sendUserMessage.mutate({
+        taskId,
+        runId: activeRunId,
+        content,
+        mentionAgentId: agentId,
+        replyToId: originalMsg.id,
+      });
+    },
+    [taskId, activeRunId, sendUserMessage],
   );
 
   function handleTogglePause() {
@@ -661,13 +722,14 @@ export default function ConsolePage() {
 
         {/* Message stream */}
         <div ref={streamRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-bg/30">
-          {messages?.map((msg, i) => {
+          {visibleMessages.map((msg, i) => {
             if (msg.sender_type === "system") {
               return (
                 <div
                   key={msg.id}
                   className="flex items-center justify-center gap-2 py-1.5"
                   style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
+                  onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, msg }); }}
                 >
                   <div className="h-px flex-1 bg-border-light/60" />
                   <span className="flex items-center gap-1.5 text-[0.7rem] text-text-muted shrink-0 px-2">
@@ -727,11 +789,18 @@ export default function ConsolePage() {
             // 选中高亮：选中的 agent 消息加左边框，其他 agent 消息大幅降低透明度
             const isHighlighted = !selectedAgentId || msg.sender_id === selectedAgentId;
 
+            // 重新生成版本信息
+            const regenGroup = msg.regen_group ? regenGroupMap.get(msg.regen_group) : null;
+            const regenTotal = regenGroup ? regenGroup.length : 0;
+            const regenCurrentIdx = msg.regen_group
+              ? (regenSelected[msg.regen_group] ?? (regenGroup ? regenGroup.length - 1 : 0))
+              : 0;
+
             return (
               <div
                 key={msg.id}
                 id={`msg-${msg.id}`}
-                className={cn("flex items-start gap-3 max-w-[680px] transition-all duration-200", !isHighlighted && "opacity-20 pointer-events-none")}
+                className={cn("flex items-start gap-3 max-w-[680px] transition-all duration-200", !isHighlighted && "opacity-20")}
                 style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
                 onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, msg }); }}
               >
@@ -793,6 +862,14 @@ export default function ConsolePage() {
                       </div>
                     )}
                   </div>
+                  {/* 重新生成版本切换器 */}
+                  {regenTotal > 1 && (
+                    <RegenSwitcher
+                      currentIndex={regenCurrentIdx}
+                      total={regenTotal}
+                      onSwitch={(idx) => setRegenSelected((prev) => ({ ...prev, [msg.regen_group!]: idx }))}
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -882,6 +959,11 @@ export default function ConsolePage() {
             onSaveKnowledge={() => { setSaveKnowledgeMsg(ctxMenu.msg); setCtxMenu(null); }}
             onCreateTask={() => { setCreateTaskMsg(ctxMenu.msg); setCtxMenu(null); }}
             onViewMetadata={(pos) => setMetadataPopover({ ...pos, msg: ctxMenu.msg })}
+            onRegenerate={() => {
+              if (taskId) regenerateMessage.mutate({ messageId: ctxMenu.msg.id, taskId });
+              setCtxMenu(null);
+            }}
+            onForward={() => { setForwardMsg(ctxMenu.msg); setCtxMenu(null); }}
           />,
           document.body
         )}
@@ -997,6 +1079,16 @@ export default function ConsolePage() {
 
       {/* 创建为任务 Modal */}
       <CreateTaskModal msg={createTaskMsg} onClose={() => setCreateTaskMsg(null)} />
+
+      {/* 转发消息 Modal */}
+      <ForwardMessageModal
+        msg={forwardMsg}
+        agents={taskAgents}
+        onClose={() => setForwardMsg(null)}
+        onForward={(agentId, instruction) => {
+          if (forwardMsg) handleForward(agentId, instruction, forwardMsg);
+        }}
+      />
 
       {/* 查看详情 popover */}
       {metadataPopover && (
