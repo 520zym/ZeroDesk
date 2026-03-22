@@ -571,22 +571,28 @@ pub async fn start_task_execution(
     }
 
     // Ensure a run exists; create run_number=1 if none
-    let existing_run: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM task_runs WHERE task_id = ?1 ORDER BY run_number DESC LIMIT 1",
+    // Deduplicate: keep only the latest run per run_number
+    let existing_run: Option<(String, String,)> = sqlx::query_as(
+        "SELECT id, status FROM task_runs WHERE task_id = ?1 ORDER BY run_number DESC LIMIT 1",
     )
     .bind(&task_id)
     .fetch_optional(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
 
-    let run_id = if let Some((rid,)) = existing_run {
-        // Update the existing run status back to running (for resume)
-        sqlx::query("UPDATE task_runs SET status = 'running' WHERE id = ?1")
-            .bind(&rid)
-            .execute(pool.inner())
-            .await
-            .map_err(|e| e.to_string())?;
-        rid
+    let run_id = if let Some((rid, status)) = existing_run {
+        if status == "running" {
+            // Already running — just reuse
+            rid
+        } else {
+            // Reset to running and update started_at
+            sqlx::query("UPDATE task_runs SET status = 'running', started_at = datetime('now'), completed_at = NULL WHERE id = ?1")
+                .bind(&rid)
+                .execute(pool.inner())
+                .await
+                .map_err(|e| e.to_string())?;
+            rid
+        }
     } else {
         let rid = uuid::Uuid::new_v4().to_string();
         sqlx::query(

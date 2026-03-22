@@ -35,7 +35,7 @@ import {
 import { useWorkspaceModels, useProviders } from "@/hooks/useModels";
 import { usePromptTemplates } from "@/hooks/usePrompts";
 import { useSkills } from "@/hooks/useSkills";
-import type { Agent, Model, ModelProvider, Skill } from "@/types";
+import type { Agent, Model, ModelProvider } from "@/types";
 
 const AVATAR_COLORS = [
   "bg-primary",

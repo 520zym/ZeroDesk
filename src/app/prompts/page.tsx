@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { diffLines } from "diff";
 import {
-  RotateCcw,
+
   GitCompare,
   Eye,
   ArrowRight,

@@ -138,8 +138,6 @@ export default function HistoryPage() {
     [rerunTask, navigate]
   );
 
-  const statsValue = (v: string | undefined, fallback = "0") => v ?? fallback;
-
   return (
     <div className="flex flex-col h-full overflow-hidden px-4 sm:px-6 pt-5 pb-6">
       {/* Header */}
@@ -533,11 +531,10 @@ function TaskHistoryRow({
 }
 
 function FailureReviewPanel({
-  task,
   onClose,
   onNavigate,
 }: {
-  task: Task;
+  task?: Task;
   onClose: () => void;
   onNavigate: () => void;
 }) {

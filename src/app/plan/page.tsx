@@ -380,6 +380,7 @@ export default function PlanPage() {
             </button>
           </div>
         ) : (
+          <>
           <div
             className="bg-sand-light rounded-xl p-4 mb-5 flex items-start gap-3"
             style={{ animation: "fade-in 0.25s ease 0.1s both" }}
@@ -434,6 +435,7 @@ export default function PlanPage() {
               )}
             </div>
           )}
+          </>
         )}
 
         {/* Step list */}

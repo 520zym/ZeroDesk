@@ -345,7 +345,7 @@ export default function TasksPage() {
           {filteredTasks.map((task, i) => (
             <div
               key={task.id}
-              onClick={() => navigate(task.status === "running" ? `/tasks/${task.id}/console` : `/tasks/${task.id}/plan`)}
+              onClick={() => navigate(task.status === "pending" || task.status === "draft" ? `/tasks/${task.id}/plan` : `/tasks/${task.id}/console`)}
               className="bg-surface rounded-xl border border-border-light p-5 cursor-pointer transition-all hover:shadow-card-hover hover:border-primary/15 group"
               style={{ animation: `fade-in 0.25s ease ${i * 0.06}s both` }}
             >

@@ -9,7 +9,7 @@ import {
   Cpu,
   Loader2,
   UserPlus,
-  UserMinus,
+
   Search,
   Sparkles,
   Package,
@@ -35,7 +35,7 @@ import {
 import { useAgents } from "@/hooks/useAgents";
 import { useSkills } from "@/hooks/useSkills";
 import { useSmartPlanTeam, useExecuteTeamPlan } from "@/hooks/useSmartTeam";
-import type { Team, Agent, Skill, AgentPlan, TeamPlan } from "@/types";
+import type { Team, Agent, AgentPlan, TeamPlan } from "@/types";
 
 const COLOR_OPTIONS = ["primary", "sage", "coral", "lavender", "sand"] as const;
 

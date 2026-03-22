@@ -18,6 +18,8 @@ import {
   ChevronRight,
   ChevronDown,
   Lightbulb,
+  Reply,
+  X,
 } from "lucide-react";
 import { Avatar, Badge, ProgressBar, EmptyState, MarkdownContent } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
@@ -216,6 +218,18 @@ export default function ConsolePage() {
 
   const streamingData = useStreamStore((s) => (taskId ? s.streams[taskId] : undefined)) ?? null;
 
+  // Right-click reply
+  const [replyToMsg, setReplyToMsg] = useState<ExecutionMessage | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msg: ExecutionMessage } | null>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
+  }, [ctxMenu]);
+
   const messageMap = useMemo(() => {
     const map = new Map<string, ExecutionMessage>();
     messages?.forEach((msg) => map.set(msg.id, msg));
@@ -367,9 +381,11 @@ export default function ConsolePage() {
         runId: activeRunId,
         content,
         mentionAgentId,
+        replyToId: replyToMsg?.id ?? null,
       });
+      setReplyToMsg(null);
     },
-    [taskId, activeRunId, sendUserMessage],
+    [taskId, activeRunId, sendUserMessage, replyToMsg],
   );
 
   const handleResume = useCallback(() => {
@@ -641,6 +657,7 @@ export default function ConsolePage() {
                   id={`msg-${msg.id}`}
                   className="flex items-start gap-3 max-w-[680px] ml-auto flex-row-reverse transition-all"
                   style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
+                  onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, msg }); }}
                 >
                   <div className="w-7 h-7 rounded-full bg-lavender-light flex items-center justify-center mt-0.5 shrink-0">
                     <User size={14} className="text-lavender" />
@@ -677,6 +694,7 @@ export default function ConsolePage() {
                 id={`msg-${msg.id}`}
                 className="flex items-start gap-3 max-w-[680px] transition-all"
                 style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
+                onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, msg }); }}
               >
                 <Avatar char={avatarChar} color={avatarColor} size="sm" className="mt-0.5 shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -798,23 +816,43 @@ export default function ConsolePage() {
           )}
         </div>
 
+        {/* Context menu */}
+        {ctxMenu && (
+          <div
+            className="fixed z-[100] bg-surface border border-border-light rounded-lg shadow-lg py-1 min-w-[120px]"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <button
+              className="w-full flex items-center gap-2 px-3 py-2 text-[0.78rem] text-text hover:bg-bg-alt transition-colors cursor-pointer"
+              onClick={() => { setReplyToMsg(ctxMenu.msg); setCtxMenu(null); }}
+            >
+              <Reply size={14} className="text-text-muted" />
+              回复
+            </button>
+          </div>
+        )}
+
         {/* Bottom input */}
         {isPaused && (
           <PauseControl visible onResume={handleResume} onAdjust={handleAdjust} />
         )}
-        {isActive ? (
-          <ChatInput
-            agents={taskAgents}
-            disabled={isPaused}
-            onSend={handleChatSend}
-          />
-        ) : (
-          <div className="px-4 py-2.5 border-t border-border-light bg-surface/60 text-center">
-            <span className="text-[0.75rem] text-text-muted">
-              任务已{task.status === "completed" ? "完成" : "结束"}，对话记录仅供查看
-            </span>
+        {replyToMsg && (
+          <div className="px-4 pt-2 pb-0 border-t border-border-light bg-surface/80 flex items-center gap-2">
+            <Reply size={13} className="text-primary shrink-0" />
+            <div className="flex-1 min-w-0 text-[0.72rem] text-text-muted truncate">
+              回复 <span className="font-medium text-text">{replyToMsg.sender_type === "human" ? "你" : replyToMsg.sender_name ?? "Agent"}</span>：{replyToMsg.content.slice(0, 60)}{replyToMsg.content.length > 60 ? "..." : ""}
+            </div>
+            <button onClick={() => setReplyToMsg(null)} className="shrink-0 p-0.5 rounded hover:bg-bg-alt transition-colors cursor-pointer">
+              <X size={13} className="text-text-muted" />
+            </button>
           </div>
         )}
+        <ChatInput
+          agents={taskAgents}
+          disabled={isPaused}
+          onSend={handleChatSend}
+          placeholder={isActive ? undefined : `任务已${task.status === "completed" ? "完成" : "结束"}，发送消息可继续对话`}
+        />
       </div>
 
       {/* Right column — Metrics panel */}

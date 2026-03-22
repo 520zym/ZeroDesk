@@ -237,8 +237,7 @@ export default function ModelsPage() {
   const updateResilience = useUpdateResiliencePolicy();
   const toggleProviderEnabled = useToggleProviderEnabled();
   const testConnection = useTestProviderConnection();
-  const fetchModels = useFetchProviderModels();
-  const toggleModelEnabled = useToggleModelEnabled();
+
 
   const { data: systemAssignments = [] } = useSystemModelAssignments();
   const setSystemModelAssignment = useSetSystemModelAssignment();
