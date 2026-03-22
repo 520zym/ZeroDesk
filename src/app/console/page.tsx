@@ -278,16 +278,37 @@ export default function ConsolePage() {
   const streamRef = useRef<HTMLDivElement>(null);
   const prevMsgCount = useRef(0);
   const selectorRef = useRef<HTMLDivElement>(null);
+  // 用户是否主动上滑（暂停自动滚动）
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const isUserScrolledUpRef = useRef(false);
+
+  // 监听滚动事件：距底部 > 100px 视为用户主动上滑，暂停自动滚动
+  useEffect(() => {
+    const el = streamRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const scrolledUp = distanceFromBottom > 100;
+      if (scrolledUp !== isUserScrolledUpRef.current) {
+        isUserScrolledUpRef.current = scrolledUp;
+        setIsUserScrolledUp(scrolledUp);
+      }
+    };
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
-    if (messages && messages.length > prevMsgCount.current && streamRef.current) {
+    // 有新消息时，若用户未上滑则自动滚到底部
+    if (messages && messages.length > prevMsgCount.current && streamRef.current && !isUserScrolledUpRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
     prevMsgCount.current = messages?.length ?? 0;
   }, [messages]);
 
   useEffect(() => {
-    if (streamingData && streamRef.current) {
+    // 流式输出时，若用户未上滑则自动滚到底部
+    if (streamingData && streamRef.current && !isUserScrolledUpRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [streamingData]);
@@ -510,7 +531,7 @@ export default function ConsolePage() {
       </div>
 
       {/* Center column — Message stream */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Toolbar */}
         <div className="relative z-10 px-4 py-2.5 border-b border-border-light flex items-center gap-2 bg-surface/80 backdrop-blur-sm">
           {isActive && (
@@ -833,6 +854,22 @@ export default function ConsolePage() {
             </div>
           )}
         </div>
+
+        {/* 用户上滑时显示"回到底部"按钮 */}
+        {isUserScrolledUp && (
+          <button
+            onClick={() => {
+              if (streamRef.current) {
+                streamRef.current.scrollTop = streamRef.current.scrollHeight;
+              }
+            }}
+            className="absolute bottom-24 right-8 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs shadow-lg hover:bg-primary/90 transition-all"
+            style={{ animation: "fade-in 0.2s ease both" }}
+          >
+            <ChevronDown size={14} />
+            回到底部
+          </button>
+        )}
 
         {/* Context menu — portal 挂到 body，避免叠层/overflow 影响 */}
         {ctxMenu && createPortal(
