@@ -42,6 +42,9 @@ import { useStreamStore } from "@/stores/useStreamStore";
 import QuoteBlock from "./components/QuoteBlock";
 import ChatInput from "./components/ChatInput";
 import PauseControl from "./components/PauseControl";
+import MessageContextMenu from "./components/MessageContextMenu";
+import SaveToKnowledgeModal from "./components/SaveToKnowledgeModal";
+import CreateTaskModal from "./components/CreateTaskModal";
 import type { Agent, TaskStep, ExecutionMessage } from "@/types";
 
 const AGENT_STATUS_STYLE = {
@@ -218,9 +221,12 @@ export default function ConsolePage() {
 
   const streamingData = useStreamStore((s) => (taskId ? s.streams[taskId] : undefined)) ?? null;
 
-  // Right-click reply
+  // Right-click menu state
   const [replyToMsg, setReplyToMsg] = useState<ExecutionMessage | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msg: ExecutionMessage } | null>(null);
+  const [saveKnowledgeMsg, setSaveKnowledgeMsg] = useState<ExecutionMessage | null>(null);
+  const [createTaskMsg, setCreateTaskMsg] = useState<ExecutionMessage | null>(null);
+  const [metadataPopover, setMetadataPopover] = useState<{ x: number; y: number; msg: ExecutionMessage } | null>(null);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -229,6 +235,13 @@ export default function ConsolePage() {
     window.addEventListener("contextmenu", close);
     return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
   }, [ctxMenu]);
+
+  useEffect(() => {
+    if (!metadataPopover) return;
+    const close = () => setMetadataPopover(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [metadataPopover]);
 
   const messageMap = useMemo(() => {
     const map = new Map<string, ExecutionMessage>();
@@ -818,18 +831,16 @@ export default function ConsolePage() {
 
         {/* Context menu */}
         {ctxMenu && (
-          <div
-            className="fixed z-[100] bg-surface border border-border-light rounded-lg shadow-lg py-1 min-w-[120px]"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
-          >
-            <button
-              className="w-full flex items-center gap-2 px-3 py-2 text-[0.78rem] text-text hover:bg-bg-alt transition-colors cursor-pointer"
-              onClick={() => { setReplyToMsg(ctxMenu.msg); setCtxMenu(null); }}
-            >
-              <Reply size={14} className="text-text-muted" />
-              回复
-            </button>
-          </div>
+          <MessageContextMenu
+            position={{ x: ctxMenu.x, y: ctxMenu.y }}
+            msg={ctxMenu.msg}
+            onClose={() => setCtxMenu(null)}
+            onReply={() => { setReplyToMsg(ctxMenu.msg); setCtxMenu(null); }}
+            onCopy={() => {}}
+            onSaveKnowledge={() => { setSaveKnowledgeMsg(ctxMenu.msg); setCtxMenu(null); }}
+            onCreateTask={() => { setCreateTaskMsg(ctxMenu.msg); setCtxMenu(null); }}
+            onViewMetadata={(pos) => setMetadataPopover({ ...pos, msg: ctxMenu.msg })}
+          />
         )}
 
         {/* Bottom input */}
@@ -936,6 +947,39 @@ export default function ConsolePage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 存入知识库 Modal */}
+      <SaveToKnowledgeModal msg={saveKnowledgeMsg} onClose={() => setSaveKnowledgeMsg(null)} />
+
+      {/* 创建为任务 Modal */}
+      <CreateTaskModal msg={createTaskMsg} onClose={() => setCreateTaskMsg(null)} />
+
+      {/* 查看详情 popover */}
+      {metadataPopover && (
+        <MetadataPopover popover={metadataPopover} />
+      )}
+    </div>
+  );
+}
+
+interface MsgMeta { model?: string; tokens_input?: number; tokens_output?: number; duration_ms?: number; }
+
+function MetadataPopover({ popover }: { popover: { x: number; y: number; msg: ExecutionMessage } }) {
+  let meta: MsgMeta = {};
+  try { meta = JSON.parse(popover.msg.metadata_json ?? "{}") as MsgMeta; } catch { /* ignore */ }
+  return (
+    <div
+      className="fixed z-[100] bg-surface border border-border-light rounded-lg shadow-lg p-3 min-w-[200px]"
+      style={{ left: popover.x, top: popover.y }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="text-[0.72rem] font-semibold text-text-secondary mb-2">消息详情</div>
+      <div className="space-y-1">
+        {meta.model && <div className="flex justify-between gap-4 text-[0.72rem]"><span className="text-text-muted">模型</span><span className="text-text font-mono">{meta.model}</span></div>}
+        {meta.tokens_input != null && <div className="flex justify-between gap-4 text-[0.72rem]"><span className="text-text-muted">输入 Token</span><span className="text-text font-mono">{meta.tokens_input}</span></div>}
+        {meta.tokens_output != null && <div className="flex justify-between gap-4 text-[0.72rem]"><span className="text-text-muted">输出 Token</span><span className="text-text font-mono">{meta.tokens_output}</span></div>}
+        {meta.duration_ms != null && <div className="flex justify-between gap-4 text-[0.72rem]"><span className="text-text-muted">耗时</span><span className="text-text font-mono">{(meta.duration_ms / 1000).toFixed(1)}s</span></div>}
       </div>
     </div>
   );
