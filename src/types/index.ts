@@ -374,3 +374,28 @@ export interface DurationBucket {
   label: string;
   count: number;
 }
+
+// ─── Search ──────────────────────────────────────────────────
+
+export type SearchEntityType =
+  | "knowledge"
+  | "task"
+  | "agent"
+  | "team"
+  | "skill"
+  | "model"
+  | "workflow";
+
+export interface SearchResultItem {
+  id: string;
+  entity_type: SearchEntityType;
+  title: string;
+  subtitle: string | null;
+  snippet: string | null;
+  rank: number;
+}
+
+export interface SearchResponse {
+  results: SearchResultItem[];
+  total: number;
+}

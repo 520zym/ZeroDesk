@@ -19,6 +19,8 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
+# 显式引入 libsqlite3-sys bundled 模式，确保 FTS5 在所有平台可用
+libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

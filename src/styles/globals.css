@@ -145,6 +145,15 @@ body {
   to { transform: none; opacity: 1; }
 }
 
+/* 搜索结果 snippet 高亮样式 */
+.search-snippet mark {
+  background: var(--color-primary-light);
+  color: var(--color-primary-active);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 500;
+}
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

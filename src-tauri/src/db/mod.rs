@@ -18,6 +18,7 @@ const MIGRATION_010_SQL: &str = include_str!("migrations/010_task_runs.sql");
 const MIGRATION_011_SQL: &str = include_str!("migrations/011_knowledge_folders.sql");
 const MIGRATION_012_SQL: &str = include_str!("migrations/012_agent_conversation.sql");
 const MIGRATION_013_SQL: &str = include_str!("migrations/013_fix_duplicate_runs.sql");
+const MIGRATION_014_SQL: &str = include_str!("migrations/014_global_search_fts.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -38,6 +39,7 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         .execute(&pool)
         .await?;
 
+    // 001-013 迁移：按分号分割逐条执行（无触发器，安全）
     for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL, MIGRATION_004_SQL, MIGRATION_005_SQL, MIGRATION_006_SQL, MIGRATION_007_SQL, MIGRATION_008_SQL, MIGRATION_009_SQL, MIGRATION_010_SQL, MIGRATION_011_SQL, MIGRATION_012_SQL, MIGRATION_013_SQL] {
         let stripped: String = sql
             .lines()
@@ -55,6 +57,35 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
                     Err(e) => return Err(e),
                 }
             }
+        }
+    }
+
+    // 014 迁移：包含触发器（BEGIN...END 内有分号），必须整体执行
+    // sqlx::raw_sql 将 SQL 字符串直接交给 SQLite 的 sqlite3_exec 解析，正确处理多语句和触发器
+    {
+        use sqlx::Executor;
+        let mut conn = pool.acquire().await?;
+        if let Err(e) = conn.execute(sqlx::raw_sql(MIGRATION_014_SQL)).await {
+            let msg = e.to_string();
+            if !msg.contains("already exists") {
+                return Err(e);
+            }
+            tracing::debug!("FTS migration already applied, skipping: {}", msg);
+        }
+    }
+
+    // 填充已有数据到 FTS 索引（rebuild 从 content= 指向的原表重建索引）
+    for rebuild_sql in [
+        "INSERT INTO fts_knowledge_items(fts_knowledge_items) VALUES('rebuild')",
+        "INSERT INTO fts_tasks(fts_tasks) VALUES('rebuild')",
+        "INSERT INTO fts_agents(fts_agents) VALUES('rebuild')",
+        "INSERT INTO fts_teams(fts_teams) VALUES('rebuild')",
+        "INSERT INTO fts_skills(fts_skills) VALUES('rebuild')",
+        "INSERT INTO fts_models(fts_models) VALUES('rebuild')",
+        "INSERT INTO fts_workflow_templates(fts_workflow_templates) VALUES('rebuild')",
+    ] {
+        if let Err(e) = sqlx::query(rebuild_sql).execute(&pool).await {
+            tracing::warn!("FTS rebuild warning (non-fatal): {}", e);
         }
     }
 

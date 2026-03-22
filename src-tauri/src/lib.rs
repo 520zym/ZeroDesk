@@ -6,7 +6,7 @@ mod models;
 
 use std::path::PathBuf;
 
-use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, settings, skills, tasks, teams};
+use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, search, settings, skills, tasks, teams};
 
 pub struct DataDir(pub PathBuf);
 
@@ -133,6 +133,8 @@ pub fn run() {
             prompts::list_prompt_templates,
             prompts::list_workflow_templates,
             prompts::create_workflow_template,
+            // search
+            search::global_search,
             // settings
             settings::get_settings,
             settings::update_settings,

@@ -1,10 +1,26 @@
+import { useState, useEffect } from "react";
 import { Search, Pause, Bell, Command } from "lucide-react";
+import { CommandPalette } from "@/components/search/CommandPalette";
 
 interface TopbarProps {
   title: string;
 }
 
 export function Topbar({ title }: TopbarProps) {
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // 绑定全局快捷键 Cmd+K / Ctrl+K
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <header className="h-[var(--topbar-height)] min-h-[var(--topbar-height)] bg-surface/80 backdrop-blur-sm border-b border-border-light flex items-center px-6 gap-3 z-10">
       <h1 className="text-[0.95rem] font-semibold text-text mr-auto tracking-tight">
@@ -15,6 +31,7 @@ export function Topbar({ title }: TopbarProps) {
       <button
         className="flex items-center gap-2 bg-bg/80 border border-border-light rounded-lg px-3 py-1.5 w-[240px] transition-all hover:border-primary/30 hover:shadow-sm cursor-pointer group"
         title="搜索 (Ctrl+K)"
+        onClick={() => setSearchOpen(true)}
       >
         <Search size={14} className="text-text-muted shrink-0" />
         <span className="text-[0.8rem] text-text-muted flex-1 text-left">搜索...</span>
@@ -39,6 +56,9 @@ export function Topbar({ title }: TopbarProps) {
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-coral rounded-full" />
         </button>
       </div>
+
+      {/* 全局搜索面板 */}
+      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </header>
   );
 }

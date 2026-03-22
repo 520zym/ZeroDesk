@@ -3,6 +3,7 @@ pub mod dashboard;
 pub mod knowledge;
 pub mod models;
 pub mod prompts;
+pub mod search;
 pub mod settings;
 pub mod skills;
 pub mod tasks;

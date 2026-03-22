@@ -6453,6 +6453,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "dirs",
+ "libsqlite3-sys",
  "reqwest",
  "serde",
  "serde_json",
