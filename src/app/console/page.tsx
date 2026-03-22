@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Pause,
   Play,
@@ -228,12 +229,13 @@ export default function ConsolePage() {
   const [createTaskMsg, setCreateTaskMsg] = useState<ExecutionMessage | null>(null);
   const [metadataPopover, setMetadataPopover] = useState<{ x: number; y: number; msg: ExecutionMessage } | null>(null);
 
+  // ctxMenu close 只监听 click，不监听 contextmenu
+  // （监听 contextmenu 会导致右键打开菜单的同一事件立刻将其关闭）
   useEffect(() => {
     if (!ctxMenu) return;
     const close = () => setCtxMenu(null);
     window.addEventListener("click", close);
-    window.addEventListener("contextmenu", close);
-    return () => { window.removeEventListener("click", close); window.removeEventListener("contextmenu", close); };
+    return () => window.removeEventListener("click", close);
   }, [ctxMenu]);
 
   useEffect(() => {
@@ -472,7 +474,7 @@ export default function ConsolePage() {
             return (
               <div
                 key={agent.id}
-                onClick={() => setSelectedAgentId(agent.id)}
+                onClick={() => setSelectedAgentId(isSelected ? null : agent.id)}
                 className={cn(
                   "rounded-lg p-2.5 cursor-pointer transition-all",
                   isSelected ? "bg-primary-subtle border border-primary/20" : "hover:bg-bg/70 border border-transparent"
@@ -701,11 +703,14 @@ export default function ConsolePage() {
             const metadata = tryParseMetadata(msg.metadata_json);
             const thinkingText = metadata?.thinking as string | undefined;
 
+            // 选中高亮：选中的 agent 消息加左边框，其他 agent 消息大幅降低透明度
+            const isHighlighted = !selectedAgentId || msg.sender_id === selectedAgentId;
+
             return (
               <div
                 key={msg.id}
                 id={`msg-${msg.id}`}
-                className="flex items-start gap-3 max-w-[680px] transition-all"
+                className={cn("flex items-start gap-3 max-w-[680px] transition-all duration-200", !isHighlighted && "opacity-20 pointer-events-none")}
                 style={{ animation: `fade-in 0.25s ease ${i * 0.04}s both` }}
                 onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, msg }); }}
               >
@@ -715,7 +720,7 @@ export default function ConsolePage() {
                     <span className="text-[0.75rem] font-medium text-text">{msg.sender_name ?? "Agent"}</span>
                     <span className="text-[0.62rem] text-text-muted">{formatTime(msg.created_at)}</span>
                   </div>
-                  <div className="bg-surface rounded-xl rounded-tl-sm px-4 py-3 border border-border-light">
+                  <div className={cn("bg-surface rounded-xl rounded-tl-sm px-4 py-3 border transition-all", isHighlighted && selectedAgentId ? "border-l-[3px] border-l-primary/50 border-border-light" : "border-border-light")}>
                     {msg.reply_to_id && (
                       <QuoteBlock
                         quotedMessage={messageMap.get(msg.reply_to_id)}
@@ -829,8 +834,8 @@ export default function ConsolePage() {
           )}
         </div>
 
-        {/* Context menu */}
-        {ctxMenu && (
+        {/* Context menu — portal 挂到 body，避免叠层/overflow 影响 */}
+        {ctxMenu && createPortal(
           <MessageContextMenu
             position={{ x: ctxMenu.x, y: ctxMenu.y }}
             msg={ctxMenu.msg}
@@ -840,7 +845,8 @@ export default function ConsolePage() {
             onSaveKnowledge={() => { setSaveKnowledgeMsg(ctxMenu.msg); setCtxMenu(null); }}
             onCreateTask={() => { setCreateTaskMsg(ctxMenu.msg); setCtxMenu(null); }}
             onViewMetadata={(pos) => setMetadataPopover({ ...pos, msg: ctxMenu.msg })}
-          />
+          />,
+          document.body
         )}
 
         {/* Bottom input */}

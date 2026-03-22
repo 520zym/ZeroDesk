@@ -1341,6 +1341,15 @@ pub async fn send_user_message(
                             "reply_to_id": &msg_id_c,
                             "content_type": "text",
                         }));
+                        // 清除流式气泡，避免与持久化消息重复显示
+                        let _ = app_clone.emit("execution:chunk", serde_json::json!({
+                            "task_id": &task_id_c,
+                            "step_id": "",
+                            "agent_id": &agent.id,
+                            "agent_name": &agent.name,
+                            "chunk_type": "step_done",
+                            "chunk": "",
+                        }));
                     }
                     Err(e) => {
                         tracing::error!("Agent reply failed: {}", e);
