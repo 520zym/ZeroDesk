@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicerloop/tauri-schema/refs/heads/main/src/tauri.conf.schema.json",
   "productName": "ZeroDesk",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "identifier": "com.zerodesk.app",
   "build": {
     "frontendDist": "../dist",
