@@ -4,9 +4,11 @@ node_modules/
 # Build output
 dist/
 src-tauri/target/
+tsconfig.tsbuildinfo
 
 # IDE
 .vscode/
+.cursor/
 *.swp
 
 # OS
@@ -22,3 +24,21 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Local agent/tooling state
+.claude/
+.playwright-mcp/
+.superpowers/
+.shared/
+.pnpm-store/
+
+# Design drafts and generated scratch files
+html-mockups/
+docs/superpowers/
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+.cache/
