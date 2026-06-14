@@ -3,6 +3,7 @@ name = "zerodesk"
 version = "0.1.0"
 description = "Multi-Agent Task Orchestration Workbench"
 authors = ["ZeroDesk"]
+license = "Apache-2.0"
 edition = "2021"
 
 [lib]

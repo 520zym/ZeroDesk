@@ -35,6 +35,8 @@ __pycache__/
 # Design drafts and generated scratch files
 html-mockups/
 docs/superpowers/
+docs/技术栈.md
+docs/页面架构与详细设计.md
 
 # Logs and temporary files
 *.log

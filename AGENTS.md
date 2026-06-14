@@ -27,7 +27,7 @@ pnpm tauri build            # 构建生产包
 - 标题和正文描述都使用中文。
 - 标题使用 Conventional Commits 风格：`type(moduleName): 中文标题`，例如 `feat(editor): 支持章节自动保存`。
 - 正文描述说明本次提交改了什么、为什么改。
-- 如果提交包含 AI 生成或 AI 协作生成的代码、文档或其他内容，正文末尾添加：`Co-Authored-By: Codex <noreply@openai.com>`。
+- 如果提交包含 AI 生成或 AI 协作生成的代码、文档或其他内容，正文末尾添加对应 AI 协作者信息：`Co-Authored-By: {AI 工具或模型名称} <{该工具推荐或可用的 noreply 邮箱}>`。可以按实际使用的工具添加多行。
 
 ## 项目结构
 ```
