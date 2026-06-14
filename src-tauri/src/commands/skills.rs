@@ -60,6 +60,74 @@ pub async fn create_skill(
         .map_err(|e| e.to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_skillsmp_search_url_with_default_base() {
+        let url = build_skillsmp_search_url(DEFAULT_SKILLSMP_API_BASE_URL, "SEO strategy");
+
+        assert_eq!(
+            url,
+            "https://skillsmp.com/api/v1/skills/search?q=SEO%20strategy&sortBy=stars"
+        );
+    }
+
+    #[test]
+    fn builds_skillsmp_search_url_with_custom_base_and_encodes_query() {
+        let url = build_skillsmp_search_url("https://proxy.example.com/skillsmp/", "AI 自动化");
+
+        assert_eq!(
+            url,
+            "https://proxy.example.com/skillsmp/api/v1/skills/search?q=AI%20%E8%87%AA%E5%8A%A8%E5%8C%96&sortBy=stars"
+        );
+    }
+
+    #[test]
+    fn accepts_full_search_endpoint_as_skillsmp_base_url() {
+        let url = build_skillsmp_search_url(
+            "https://skillsmp.internal/api/v1/skills/search",
+            "automation",
+        );
+
+        assert_eq!(
+            url,
+            "https://skillsmp.internal/api/v1/skills/search?q=automation&sortBy=stars"
+        );
+    }
+
+    #[test]
+    fn parses_official_skillsmp_search_response_shape() {
+        let body = serde_json::json!({
+            "success": true,
+            "data": {
+                "skills": [
+                    {
+                        "name": "frontend-design",
+                        "description": "前端设计规范",
+                        "githubUrl": "https://github.com/example/repo/tree/main/skill",
+                        "skillUrl": "https://skillsmp.com/skills/frontend-design",
+                        "stars": 25,
+                        "updatedAt": "1780885619"
+                    }
+                ],
+                "total": 1
+            }
+        });
+
+        let result = parse_marketplace_search_response(&body);
+
+        assert_eq!(result.total, 1);
+        assert_eq!(result.skills.len(), 1);
+        assert_eq!(result.skills[0].name.as_deref(), Some("frontend-design"));
+        assert_eq!(
+            result.skills[0].repo.as_deref(),
+            Some("https://github.com/example/repo/tree/main/skill")
+        );
+    }
+}
+
 #[tauri::command]
 pub async fn update_skill(
     pool: State<'_, SqlitePool>,
@@ -587,108 +655,10 @@ pub async fn import_local_skill(
         .map_err(|e| e.to_string())
 }
 
-// --- Translation helper ---
-
-fn contains_cjk(s: &str) -> bool {
-    s.chars().any(|c| {
-        let cp = c as u32;
-        (0x4E00..=0x9FFF).contains(&cp)
-            || (0x3400..=0x4DBF).contains(&cp)
-            || (0x3000..=0x303F).contains(&cp)
-            || (0xFF00..=0xFFEF).contains(&cp)
-    })
-}
-
-async fn translate_to_english(
-    pool: &SqlitePool,
-    text: &str,
-) -> Result<String, String> {
-    let row = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT m.name, mp.base_url, mp.api_key_encrypted
-         FROM system_model_assignments sma
-         JOIN models m ON m.id = sma.model_id
-         JOIN model_providers mp ON m.provider_id = mp.id
-         WHERE sma.task_key = 'translation' AND sma.workspace_id = 'default'
-         LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let (model_name, base_url, api_key) = match row {
-        Some(r) => r,
-        None => {
-            let fallback = sqlx::query_as::<_, (String, String, String)>(
-                "SELECT m.name, mp.base_url, mp.api_key_encrypted
-                 FROM models m
-                 JOIN model_providers mp ON m.provider_id = mp.id
-                 WHERE m.enabled = 1 AND mp.enabled = 1
-                 ORDER BY mp.avg_latency_ms ASC NULLS LAST
-                 LIMIT 1",
-            )
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "没有可用的模型，无法翻译搜索词。请在模型与路由页面配置翻译模型".to_string())?;
-            fallback
-        }
-    };
-
-    let chat_url = format!(
-        "{}/chat/completions",
-        base_url.trim_end_matches('/')
-    );
-
-    let body = serde_json::json!({
-        "model": model_name,
-        "max_tokens": 100,
-        "temperature": 0,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a translator. Translate the user's input into English. Output ONLY the translated text, nothing else."
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ]
-    });
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(&chat_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|e| format!("翻译请求失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err("翻译服务不可用，将使用原文搜索".into());
-    }
-
-    let json: serde_json::Value = resp
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("解析翻译结果失败: {}", e))?;
-
-    let translated = json
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|c| c.as_str())
-        .unwrap_or(text)
-        .trim()
-        .to_string();
-
-    Ok(translated)
-}
-
 // --- SkillsMP Marketplace ---
+
+const DEFAULT_SKILLSMP_API_BASE_URL: &str = "https://skillsmp.com";
+const SKILLSMP_SEARCH_PATH: &str = "/api/v1/skills/search";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketplaceSkill {
@@ -707,33 +677,104 @@ pub struct MarketplaceSearchResult {
     pub total: i64,
 }
 
+fn build_skillsmp_search_url(api_base_url: &str, search_query: &str) -> String {
+    let configured_base = api_base_url.trim();
+    let base = if configured_base.is_empty() {
+        DEFAULT_SKILLSMP_API_BASE_URL
+    } else {
+        configured_base
+    };
+
+    let base_without_query = base.split('?').next().unwrap_or(base).trim_end_matches('/');
+    let endpoint = if base_without_query.ends_with(SKILLSMP_SEARCH_PATH) {
+        base_without_query.to_string()
+    } else if base_without_query.ends_with("/api/v1/skills") {
+        format!("{}/search", base_without_query)
+    } else if base_without_query.ends_with("/api/v1") {
+        format!("{}/skills/search", base_without_query)
+    } else {
+        format!("{}{}", base_without_query, SKILLSMP_SEARCH_PATH)
+    };
+
+    format!(
+        "{}?q={}&sortBy=stars",
+        endpoint,
+        urlencoding::encode(search_query),
+    )
+}
+
+fn parse_marketplace_search_response(body: &serde_json::Value) -> MarketplaceSearchResult {
+    let data = body.get("data");
+    let results_array = data
+        .and_then(|d| d.get("skills"))
+        .and_then(|v| v.as_array())
+        .or_else(|| {
+            data.and_then(|d| d.get("data"))
+                .and_then(|d| d.as_array())
+        })
+        .or_else(|| body.get("skills").and_then(|v| v.as_array()))
+        .or_else(|| body.get("results").and_then(|v| v.as_array()));
+
+    let skills: Vec<MarketplaceSkill> = results_array
+        .map(|arr| {
+            arr.iter().filter_map(|item| {
+                let skill_obj = item.get("skill").unwrap_or(item);
+                Some(MarketplaceSkill {
+                    name: skill_obj.get("name").and_then(|v| v.as_str()).map(String::from),
+                    description: skill_obj.get("description").and_then(|v| v.as_str()).map(String::from),
+                    url: skill_obj
+                        .get("skillUrl")
+                        .or_else(|| skill_obj.get("githubUrl"))
+                        .or_else(|| skill_obj.get("url"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    repo: skill_obj
+                        .get("githubUrl")
+                        .or_else(|| skill_obj.get("repo"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    stars: skill_obj.get("stars").and_then(|v| v.as_i64()),
+                    category: skill_obj.get("category").and_then(|v| v.as_str()).map(String::from),
+                    updated_at: skill_obj
+                        .get("updatedAt")
+                        .or_else(|| skill_obj.get("updated_at"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                })
+            }).collect()
+        })
+        .unwrap_or_default();
+
+    let total: i64 = data
+        .and_then(|d| d.get("total"))
+        .and_then(|v| v.as_i64())
+        .or_else(|| body.get("meta").and_then(|m| m.get("total")).and_then(|v| v.as_i64()))
+        .or_else(|| body.get("total").and_then(|v| v.as_i64()))
+        .unwrap_or(skills.len() as i64);
+
+    MarketplaceSearchResult { skills, total }
+}
+
 #[tauri::command]
 pub async fn search_marketplace_skills(
     pool: State<'_, SqlitePool>,
     query: String,
 ) -> Result<MarketplaceSearchResult, String> {
-    let row: (Option<String>,) =
-        sqlx::query_as("SELECT skillsmp_api_key FROM system_settings WHERE id = 1")
+    let row: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT skillsmp_api_key, skillsmp_api_base_url FROM system_settings WHERE id = 1")
             .fetch_one(pool.inner())
             .await
             .map_err(|e| e.to_string())?;
 
-    let api_key = row.0.filter(|k| !k.is_empty()).ok_or_else(|| {
+    let api_key = row.0.filter(|k| !k.trim().is_empty()).ok_or_else(|| {
         "未配置 SkillsMP API Key，请在设置页面填写后重试".to_string()
     })?;
+    let api_base_url = row
+        .1
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_SKILLSMP_API_BASE_URL.to_string());
 
-    let search_query = if contains_cjk(&query) {
-        translate_to_english(pool.inner(), &query)
-            .await
-            .unwrap_or_else(|_| query.clone())
-    } else {
-        query.clone()
-    };
-
-    let url = format!(
-        "https://skillsmp.com/api/v1/skills/ai-search?q={}",
-        urlencoding::encode(&search_query),
-    );
+    let url = build_skillsmp_search_url(&api_base_url, &query);
 
     let client = reqwest::Client::new();
     let resp = client
@@ -767,41 +808,7 @@ pub async fn search_marketplace_skills(
         .await
         .map_err(|e| format!("解析 SkillsMP 响应失败: {}", e))?;
 
-    let results_array = body
-        .get("data")
-        .and_then(|d| d.get("data"))
-        .and_then(|d| d.as_array())
-        .or_else(|| body.get("skills").and_then(|v| v.as_array()))
-        .or_else(|| body.get("results").and_then(|v| v.as_array()));
-
-    let skills: Vec<MarketplaceSkill> = results_array
-        .map(|arr| {
-            arr.iter().filter_map(|item| {
-                let skill_obj = item.get("skill").unwrap_or(item);
-                Some(MarketplaceSkill {
-                    name: skill_obj.get("name").and_then(|v| v.as_str()).map(String::from),
-                    description: skill_obj.get("description").and_then(|v| v.as_str()).map(String::from),
-                    url: skill_obj.get("githubUrl").or_else(|| skill_obj.get("url")).and_then(|v| v.as_str()).map(String::from),
-                    repo: skill_obj.get("githubUrl").or_else(|| skill_obj.get("repo")).and_then(|v| v.as_str()).map(String::from),
-                    stars: skill_obj.get("stars").and_then(|v| v.as_i64()),
-                    category: skill_obj.get("category").and_then(|v| v.as_str()).map(String::from),
-                    updated_at: skill_obj.get("updatedAt").or_else(|| skill_obj.get("updated_at")).and_then(|v| v.as_str()).map(String::from),
-                })
-            }).collect()
-        })
-        .unwrap_or_default();
-
-    let total: i64 = body
-        .get("meta")
-        .and_then(|m| m.get("total"))
-        .and_then(|v| v.as_i64())
-        .or_else(|| body.get("total").and_then(|v| v.as_i64()))
-        .unwrap_or(skills.len() as i64);
-
-    Ok(MarketplaceSearchResult {
-        skills,
-        total,
-    })
+    Ok(parse_marketplace_search_response(&body))
 }
 
 // --- GitHub download helpers ---

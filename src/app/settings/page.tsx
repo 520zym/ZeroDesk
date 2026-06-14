@@ -153,6 +153,24 @@ export default function SettingsPage() {
             icon={<Sparkles size={15} className="text-primary" />}
             delay={240}
           >
+            <SettingsRow label="SkillsMP 接口地址">
+              <input
+                type="url"
+                value={settings.skillsmp_api_base_url || "https://skillsmp.com"}
+                onChange={(e) =>
+                  updateSettings({
+                    skillsmp_api_base_url: e.target.value.trim() || "https://skillsmp.com",
+                  })
+                }
+                placeholder="https://skillsmp.com"
+                className={cn(
+                  "w-[280px] rounded-lg border border-border-light bg-bg px-3 py-2",
+                  "text-[0.78rem] text-text font-mono",
+                  "focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20",
+                  "transition-colors placeholder:text-text-muted/50"
+                )}
+              />
+            </SettingsRow>
             <SettingsRow label="SkillsMP API Key">
               <ApiKeyInput
                 value={settings.skillsmp_api_key ?? ""}
@@ -164,14 +182,14 @@ export default function SettingsPage() {
                 前往
               </span>
               <button
-                onClick={() => openUrl("https://skillsmp.com/settings/api")}
+                onClick={() => openUrl("https://skillsmp.com/docs/api#authentication")}
                 className="inline-flex items-center gap-1 text-[0.72rem] text-primary hover:underline cursor-pointer border-none bg-transparent p-0 font-inherit"
               >
-                skillsmp.com/settings/api
+                skillsmp.com/docs/api#authentication
                 <ExternalLink size={10} />
               </button>
               <span className="text-[0.72rem] text-text-muted">
-                获取免费 API Key（500 次/天）
+                查看认证方式与 API Key 说明
               </span>
             </div>
           </SettingsSection>

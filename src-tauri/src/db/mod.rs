@@ -20,6 +20,7 @@ const MIGRATION_012_SQL: &str = include_str!("migrations/012_agent_conversation.
 const MIGRATION_013_SQL: &str = include_str!("migrations/013_fix_duplicate_runs.sql");
 const MIGRATION_014_SQL: &str = include_str!("migrations/014_global_search_fts.sql");
 const MIGRATION_015_SQL: &str = include_str!("migrations/015_regenerate.sql");
+const MIGRATION_016_SQL: &str = include_str!("migrations/016_skillsmp_api_base_url.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -61,8 +62,8 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         }
     }
 
-    // 015 迁移：execution_messages 新增 regen_group/regen_index 字段（简单 ALTER TABLE）
-    for sql in [MIGRATION_015_SQL] {
+    // 015-016 迁移：简单 ALTER TABLE
+    for sql in [MIGRATION_015_SQL, MIGRATION_016_SQL] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))

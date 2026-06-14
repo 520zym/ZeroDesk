@@ -326,6 +326,7 @@ export interface SystemSettings {
   budget_notify: boolean;
   data_path: string | null;
   skillsmp_api_key: string | null;
+  skillsmp_api_base_url: string;
   updated_at: string;
 }
 

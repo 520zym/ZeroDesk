@@ -20,6 +20,7 @@ interface UpdateSettingsPayload {
   budget_notify?: boolean;
   data_path?: string;
   skillsmp_api_key?: string;
+  skillsmp_api_base_url?: string;
 }
 
 export function useDataPath() {

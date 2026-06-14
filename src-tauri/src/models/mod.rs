@@ -284,6 +284,7 @@ pub struct SystemSettings {
     pub budget_notify: bool,
     pub data_path: Option<String>,
     pub skillsmp_api_key: Option<String>,
+    pub skillsmp_api_base_url: String,
     pub updated_at: String,
 }
 
