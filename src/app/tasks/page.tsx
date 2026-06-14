@@ -24,9 +24,11 @@ import {
 import { StatCard, Badge, Tabs, Modal, ProgressBar, EmptyState, AvatarStack } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatUsdCost } from "@/lib/pricing";
 import { useTasks, useTaskStats, useCreateTask, useDeleteTask, useTaskStepSummaries, useLatestTaskRuns } from "@/hooks/useTasks";
 import { useTeams, useAllTeamMembers } from "@/hooks/useTeams";
 import { useAgents } from "@/hooks/useAgents";
+import { useSettings } from "@/hooks/useSettings";
 import type { Task } from "@/types";
 
 function formatDuration(startStr: string, endStr: string): string {
@@ -143,6 +145,7 @@ export default function TasksPage() {
   const { data: allAgents = [] } = useAgents();
   const { data: stepSummaries = [] } = useTaskStepSummaries();
   const { data: latestRuns = [] } = useLatestTaskRuns();
+  const { data: settings } = useSettings();
   const createTask = useCreateTask();
   const deleteTask = useDeleteTask();
 
@@ -345,7 +348,7 @@ export default function TasksPage() {
           {filteredTasks.map((task, i) => (
             <div
               key={task.id}
-              onClick={() => navigate(task.status === "pending" || task.status === "draft" ? `/tasks/${task.id}/plan` : `/tasks/${task.id}/console`)}
+              onClick={() => navigate(`/tasks/${task.id}`)}
               className="bg-surface rounded-xl border border-border-light p-5 cursor-pointer transition-all hover:shadow-card-hover hover:border-primary/15 group"
               style={{ animation: `fade-in 0.25s ease ${i * 0.06}s both` }}
             >
@@ -416,7 +419,7 @@ export default function TasksPage() {
                       )}
                       {cost > 0 && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[0.62rem] font-medium bg-coral/10 text-coral">
-                          ¥{cost.toFixed(3)}
+                          {formatUsdCost(cost, settings)}
                         </span>
                       )}
                     </>

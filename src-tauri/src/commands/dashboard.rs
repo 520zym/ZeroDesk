@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::costing::recalculate_task_totals;
 use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{
     AgentUsageRank, CostDistributionEntry, DailyTaskCount, DashboardKpi, DurationBucket,
@@ -8,25 +9,21 @@ use crate::models::{
 };
 
 #[tauri::command]
-pub async fn get_dashboard_kpis(
-    pool: State<'_, SqlitePool>,
-) -> Result<DashboardKpi, String> {
+pub async fn get_dashboard_kpis(pool: State<'_, SqlitePool>) -> Result<DashboardKpi, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
 
-    let total_tasks: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1")
+    let total_tasks: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1")
+        .bind(workspace_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let running_tasks: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'running'")
             .bind(workspace_id)
             .fetch_one(pool.inner())
             .await
             .map_err(|e| e.to_string())?;
-
-    let running_tasks: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'running'",
-    )
-    .bind(workspace_id)
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
 
     let completed_tasks: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'completed'",
@@ -36,13 +33,12 @@ pub async fn get_dashboard_kpis(
     .await
     .map_err(|e| e.to_string())?;
 
-    let failed_tasks: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'failed'",
-    )
-    .bind(workspace_id)
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
+    let failed_tasks: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'failed'")
+            .bind(workspace_id)
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
 
     let total_agents: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM agents WHERE workspace_id = ?1")
@@ -51,12 +47,11 @@ pub async fn get_dashboard_kpis(
             .await
             .map_err(|e| e.to_string())?;
 
-    let total_teams: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM teams WHERE workspace_id = ?1")
-            .bind(workspace_id)
-            .fetch_one(pool.inner())
-            .await
-            .map_err(|e| e.to_string())?;
+    let total_teams: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM teams WHERE workspace_id = ?1")
+        .bind(workspace_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let token_cost: (i64, f64) = sqlx::query_as(
         "SELECT COALESCE(SUM(total_tokens), 0), COALESCE(SUM(total_cost), 0.0) FROM tasks WHERE workspace_id = ?1",
@@ -79,13 +74,11 @@ pub async fn get_dashboard_kpis(
 }
 
 #[tauri::command]
-pub async fn get_history_stats(
-    pool: State<'_, SqlitePool>,
-) -> Result<HistoryStats, String> {
+pub async fn get_history_stats(pool: State<'_, SqlitePool>) -> Result<HistoryStats, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
 
     let total: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status IN ('completed','failed')",
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status IN ('running','completed','failed')",
     )
     .bind(workspace_id)
     .fetch_one(pool.inner())
@@ -100,21 +93,24 @@ pub async fn get_history_stats(
     .await
     .map_err(|e| e.to_string())?;
 
-    let failed: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'failed'",
-    )
-    .bind(workspace_id)
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
+    let failed: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'failed'")
+            .bind(workspace_id)
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
 
-    let cost: (f64,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(total_cost), 0.0) FROM tasks WHERE workspace_id = ?1 AND status IN ('completed','failed')",
+    let task_ids: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM tasks WHERE workspace_id = ?1 AND status IN ('running','completed','failed')",
     )
     .bind(workspace_id)
-    .fetch_one(pool.inner())
+    .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
+    let mut total_cost = 0.0;
+    for (task_id,) in task_ids {
+        total_cost += recalculate_task_totals(pool.inner(), &task_id).await?.cost;
+    }
 
     let avg_dur: (f64,) = sqlx::query_as(
         "SELECT COALESCE(AVG((julianday(completed_at) - julianday(created_at)) * 86400), 0.0) FROM tasks WHERE workspace_id = ?1 AND status IN ('completed','failed') AND completed_at IS NOT NULL",
@@ -136,7 +132,7 @@ pub async fn get_history_stats(
         failed: failed.0,
         success_rate,
         avg_duration_seconds: avg_dur.0,
-        total_cost: cost.0,
+        total_cost,
     })
 }
 
@@ -148,11 +144,9 @@ pub async fn list_history_tasks(
 ) -> Result<Vec<Task>, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
 
-    let search_pattern = search
-        .filter(|s| !s.is_empty())
-        .map(|s| format!("%{}%", s));
+    let search_pattern = search.filter(|s| !s.is_empty()).map(|s| format!("%{}%", s));
 
-    match (&status_filter, &search_pattern) {
+    let mut tasks = match (&status_filter, &search_pattern) {
         (Some(status), Some(pattern)) => {
             sqlx::query_as::<_, Task>(
                 "SELECT * FROM tasks WHERE workspace_id = ?1 AND status = ?2 AND title LIKE ?3 ORDER BY updated_at DESC",
@@ -176,7 +170,7 @@ pub async fn list_history_tasks(
         }
         (None, Some(pattern)) => {
             sqlx::query_as::<_, Task>(
-                "SELECT * FROM tasks WHERE workspace_id = ?1 AND status IN ('completed','failed','archived') AND title LIKE ?2 ORDER BY updated_at DESC",
+                "SELECT * FROM tasks WHERE workspace_id = ?1 AND status IN ('running','completed','failed','archived') AND title LIKE ?2 ORDER BY updated_at DESC",
             )
             .bind(workspace_id)
             .bind(pattern)
@@ -186,14 +180,22 @@ pub async fn list_history_tasks(
         }
         (None, None) => {
             sqlx::query_as::<_, Task>(
-                "SELECT * FROM tasks WHERE workspace_id = ?1 AND status IN ('completed','failed','archived') ORDER BY updated_at DESC",
+                "SELECT * FROM tasks WHERE workspace_id = ?1 AND status IN ('running','completed','failed','archived') ORDER BY updated_at DESC",
             )
             .bind(workspace_id)
             .fetch_all(pool.inner())
             .await
             .map_err(|e| e.to_string())
         }
+    }?;
+
+    for task in &mut tasks {
+        let usage = recalculate_task_totals(pool.inner(), &task.id).await?;
+        task.total_tokens = Some(usage.tokens);
+        task.total_cost = Some(usage.cost);
     }
+
+    Ok(tasks)
 }
 
 #[tauri::command]

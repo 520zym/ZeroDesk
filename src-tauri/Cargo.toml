@@ -1,6 +1,6 @@
 [package]
 name = "zerodesk"
-version = "0.1.0"
+version = "0.0.1"
 description = "Multi-Agent Task Orchestration Workbench"
 authors = ["ZeroDesk"]
 license = "Apache-2.0"

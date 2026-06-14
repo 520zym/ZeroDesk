@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { ListChecks, Target, Coins, Zap, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatUsdCost } from "@/lib/pricing";
 import { StatCard } from "@/components/ui";
 import {
   useDashboardKpis,
@@ -10,6 +11,7 @@ import {
   useCostDistribution,
   useTaskDurationDistribution,
 } from "@/hooks/useDashboard";
+import { useSettings } from "@/hooks/useSettings";
 
 const CHART_COLORS = ["#635BFF", "#14B8A6", "#F59E0B", "#E879F9", "#94A3B8"];
 const AGENT_COLORS: Record<string, string> = {
@@ -49,6 +51,7 @@ function DashboardView() {
   const { data: agentUsage = [] } = useAgentUsageRanking();
   const { data: costDist = [] } = useCostDistribution();
   const { data: durationDist = [] } = useTaskDurationDistribution();
+  const { data: settings } = useSettings();
 
   const weeklyData = useMemo(() => {
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -108,7 +111,7 @@ function DashboardView() {
           icon={Coins}
           iconColor="text-sand"
           iconBg="bg-sand-light"
-          value={`¥${totalCost.toFixed(2)}`}
+          value={formatUsdCost(totalCost, settings)}
           label="总费用"
         />
       </div>
@@ -214,7 +217,7 @@ function DashboardView() {
               暂无数据
             </p>
           ) : (
-            <CostDonut items={costDist} totalCost={totalCost} />
+            <CostDonut items={costDist} totalCost={totalCost} settings={settings} />
           )}
         </div>
 
@@ -269,9 +272,11 @@ function DashboardView() {
 function CostDonut({
   items,
   totalCost,
+  settings,
 }: {
   items: { name: string; cost: number; percentage: number }[];
   totalCost: number;
+  settings?: Parameters<typeof formatUsdCost>[1];
 }) {
   const gradientParts = useMemo(() => {
     let offset = 0;
@@ -296,7 +301,7 @@ function CostDonut({
           <div className="absolute inset-[25px] bg-surface rounded-full flex items-center justify-center">
             <div className="text-center">
               <div className="text-[0.9rem] font-bold text-text">
-                ¥{totalCost.toFixed(2)}
+                {formatUsdCost(totalCost, settings)}
               </div>
               <div className="text-[0.6rem] text-text-muted">总费用</div>
             </div>

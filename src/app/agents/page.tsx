@@ -24,6 +24,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatUsdPrice } from "@/lib/pricing";
 import { Avatar, Modal, Toggle, MarkdownContent } from "@/components/ui";
 import {
   useAgents,
@@ -33,6 +34,7 @@ import {
   useOptimizePrompt,
 } from "@/hooks/useAgents";
 import { useWorkspaceModels, useProviders } from "@/hooks/useModels";
+import { useSettings } from "@/hooks/useSettings";
 import { usePromptTemplates } from "@/hooks/usePrompts";
 import { useSkills } from "@/hooks/useSkills";
 import type { Agent, Model, ModelProvider } from "@/types";
@@ -113,11 +115,6 @@ function modelBgClass(modelId: string | null): string {
   return MODEL_BG_CLASSES[Math.abs(hash) % MODEL_BG_CLASSES.length];
 }
 
-function formatPrice(price: number | null | undefined): string {
-  if (price == null) return "-";
-  return `$${price.toFixed(2)}`;
-}
-
 function ModelPicker({
   value,
   onChange,
@@ -131,6 +128,7 @@ function ModelPicker({
   models: Model[];
   placeholder?: string;
 }) {
+  const { data: settings } = useSettings();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -293,7 +291,7 @@ function ModelPicker({
                             {m.name}
                           </span>
                           <span className="text-[0.65rem] text-text-muted font-mono shrink-0">
-                            {formatPrice(m.price_per_million_tokens)}
+                            {formatUsdPrice(m.price_per_million_tokens, settings)}
                           </span>
                         </button>
                       );

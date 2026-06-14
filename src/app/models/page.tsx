@@ -28,7 +28,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { displayCurrency, formatUsdPrice } from "@/lib/pricing";
 import { ProgressBar, Modal, Toggle } from "@/components/ui";
+import { useSettings } from "@/hooks/useSettings";
 import {
   useProviders,
   useCreateProvider,
@@ -43,11 +45,12 @@ import {
   useTestProviderConnection,
   useFetchProviderModels,
   useToggleModelEnabled,
+  useUpdateModelPrice,
   useBatchToggleModels,
   useSystemModelAssignments,
   useSetSystemModelAssignment,
 } from "@/hooks/useModels";
-import type { ModelProvider, Model, TestConnectionResult } from "@/types";
+import type { ModelProvider, Model, ModelPriceCurrency, TestConnectionResult } from "@/types";
 
 const SPEED_TIER_MAP: Record<string, { label: string; bg: string }> = {
   slow: { label: "较慢", bg: "bg-coral-light text-[#9a7058]" },
@@ -220,9 +223,76 @@ function maskApiKey(key: string | null | undefined): string {
   return key.slice(0, 5) + "****..." + key.slice(-4);
 }
 
-function formatPrice(price: number | null | undefined): string {
-  if (price == null) return "-";
-  return `$${price.toFixed(2)}`;
+type ModelPriceReference = {
+  input: number;
+  output: number;
+  currency: ModelPriceCurrency;
+};
+
+const MODEL_PRICE_REFERENCES: Array<{
+  patterns: string[];
+  price: ModelPriceReference;
+}> = [
+  { patterns: ["gpt-5.5"], price: { input: 5, output: 30, currency: "USD" } },
+  { patterns: ["gpt-5.4"], price: { input: 2.5, output: 15, currency: "USD" } },
+  {
+    patterns: ["claude-opus-4.8", "opus-4.8"],
+    price: { input: 5, output: 25, currency: "USD" },
+  },
+  {
+    patterns: ["claude-sonnet-4.6", "sonnet-4.6"],
+    price: { input: 3, output: 15, currency: "USD" },
+  },
+  {
+    patterns: ["claude-haiku-4.5", "haiku-4.5"],
+    price: { input: 1, output: 5, currency: "USD" },
+  },
+  {
+    patterns: ["deepseek-v4-flash", "v4-flash"],
+    price: { input: 0.14, output: 0.28, currency: "USD" },
+  },
+  {
+    patterns: ["deepseek-v4-pro", "v4-pro"],
+    price: { input: 0.435, output: 0.87, currency: "USD" },
+  },
+  {
+    patterns: ["gemini-2.5-pro", "gemini 2.5 pro"],
+    price: { input: 1.25, output: 10, currency: "USD" },
+  },
+  {
+    patterns: ["gemini-2.5-flash", "gemini 2.5 flash"],
+    price: { input: 0.3, output: 2.5, currency: "USD" },
+  },
+];
+
+function lookupModelPriceReference(modelName: string): ModelPriceReference | null {
+  const normalized = modelName.toLowerCase();
+  return (
+    MODEL_PRICE_REFERENCES.find((entry) =>
+      entry.patterns.some((pattern) => normalized.includes(pattern)),
+    )?.price ?? null
+  );
+}
+
+function getModelPriceDisplay(model: Model): {
+  input: number | null;
+  output: number | null;
+  currency: ModelPriceCurrency;
+  isManual: boolean;
+} {
+  const reference = lookupModelPriceReference(model.name);
+  const storedPrice = model.price_per_million_tokens;
+  const manualPrice = storedPrice != null && storedPrice > 0 ? storedPrice : null;
+  const hasManual =
+    manualPrice != null &&
+    (!reference || Math.abs(manualPrice - reference.input) > 0.000001);
+
+  return {
+    input: manualPrice ?? reference?.input ?? null,
+    output: hasManual ? null : (reference?.output ?? null),
+    currency: reference?.currency ?? "USD",
+    isManual: hasManual,
+  };
 }
 
 export default function ModelsPage() {
@@ -230,6 +300,7 @@ export default function ModelsPage() {
     useProviders();
   const { data: allModels = [], isLoading: loadingModels } =
     useWorkspaceModels();
+  const { data: settings } = useSettings();
   const { data: fallbackChain = [] } = useFallbackChain();
   const { data: resilience } = useResiliencePolicy();
 
@@ -653,7 +724,7 @@ export default function ModelsPage() {
           <span className="w-24">供应商</span>
           <span className="w-24 text-center">质量评分</span>
           <span className="w-20 text-center">速度档位</span>
-          <span className="w-24 text-right">价格 /M tokens</span>
+          <span className="w-32 text-right">价格 / 百万 token</span>
           <span className="w-16 text-center">状态</span>
         </div>
 
@@ -673,6 +744,7 @@ export default function ModelsPage() {
           pagedModels.map((m, i) => {
             const speed =
               SPEED_TIER_MAP[m.speed_tier ?? "medium"] ?? SPEED_TIER_MAP.medium;
+            const price = getModelPriceDisplay(m);
             return (
               <div
                 key={m.id}
@@ -702,8 +774,26 @@ export default function ModelsPage() {
                     {speed.label}
                   </span>
                 </div>
-                <div className="w-24 text-right text-[0.8rem] text-text font-mono">
-                  {formatPrice(m.price_per_million_tokens)}
+                <div className="w-32 text-right font-mono">
+                  {price.input == null ? (
+                    <span className="text-[0.8rem] text-text-muted">-</span>
+                  ) : (
+                    <div className="space-y-0.5">
+                      <div className="text-[0.75rem] text-text">
+                        入 {formatUsdPrice(price.input, settings)}
+                        <span className="ml-1 text-[0.62rem] text-text-muted">
+                          {displayCurrency(settings)}
+                        </span>
+                      </div>
+                      <div className="text-[0.68rem] text-text-muted">
+                        {price.output == null
+                          ? price.isManual
+                            ? "出 自定义"
+                            : "出 -"
+                          : `出 ${formatUsdPrice(price.output, settings)}`}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="w-16 flex justify-center">
                   {m.status === "available" ? (
@@ -1297,12 +1387,15 @@ function ProviderConfigModal({
   onDelete: () => void;
 }) {
   const { data: models = [], isLoading, refetch } = useModels(provider.id);
+  const { data: settings } = useSettings();
   const fetchModels = useFetchProviderModels();
   const toggleModel = useToggleModelEnabled();
+  const updateModelPrice = useUpdateModelPrice();
   const batchToggle = useBatchToggleModels();
   const updateProvider = useUpdateProvider();
   const deleteProvider = useDeleteProvider();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
 
   // Edit state
   const [editName, setEditName] = useState(provider.name);
@@ -1357,7 +1450,38 @@ function ProviderConfigModal({
     );
   };
 
-  const isBusy = batchToggle.isPending || toggleModel.isPending;
+  const handlePriceInputChange = (modelId: string, value: string) => {
+    setPriceInputs((prev) => ({ ...prev, [modelId]: value }));
+  };
+
+  const getPriceInputValue = (model: Model) =>
+    priceInputs[model.id] ??
+    (model.price_per_million_tokens && model.price_per_million_tokens > 0
+      ? String(model.price_per_million_tokens)
+      : "");
+
+  const handleSaveModelPrice = (model: Model) => {
+    const raw = getPriceInputValue(model).trim();
+    const parsed = raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+
+    updateModelPrice.mutate(
+      { id: model.id, pricePerMillionTokens: parsed },
+      {
+        onSuccess: (updated) => {
+          setPriceInputs((prev) => {
+            const next = { ...prev };
+            delete next[updated.id];
+            return next;
+          });
+          refetch();
+        },
+      },
+    );
+  };
+
+  const isBusy =
+    batchToggle.isPending || toggleModel.isPending || updateModelPrice.isPending;
 
   return (
     <Modal
@@ -1541,46 +1665,99 @@ function ProviderConfigModal({
 
                       {/* Group models */}
                       {!isCollapsed &&
-                        group.models.map((m) => (
-                          <div
-                            key={m.id}
-                            className="flex items-center gap-3 pl-10 pr-4 py-1.5 hover:bg-bg/40 transition-colors cursor-pointer"
-                            onClick={() => handleToggleOne(m)}
-                          >
-                            <Checkbox
-                              checked={!!m.enabled}
-                              onChange={() => handleToggleOne(m)}
-                              size={16}
-                            />
-                            <span
-                              className={cn(
-                                "text-[0.78rem] truncate flex-1",
-                                m.enabled
-                                  ? "text-text font-medium"
-                                  : "text-text-muted",
-                              )}
+                        group.models.map((m) => {
+                          const reference = lookupModelPriceReference(m.name);
+                          const inputValue = getPriceInputValue(m);
+                          const parsedInput =
+                            inputValue.trim() === "" ? 0 : Number(inputValue);
+                          const canSavePrice =
+                            Number.isFinite(parsedInput) &&
+                            parsedInput >= 0 &&
+                            parsedInput !== (m.price_per_million_tokens ?? 0);
+                          const savingPrice =
+                            updateModelPrice.isPending &&
+                            updateModelPrice.variables?.id === m.id;
+
+                          return (
+                            <div
+                              key={m.id}
+                              className="flex items-center gap-3 pl-10 pr-4 py-2 hover:bg-bg/40 transition-colors cursor-pointer"
+                              onClick={() => handleToggleOne(m)}
                             >
-                              {shortName(m.name)}
-                            </span>
-                            {(m.price_per_million_tokens ?? 0) > 0 && (
-                              <span className="text-[0.63rem] font-mono text-text-muted shrink-0">
-                                ${m.price_per_million_tokens?.toFixed(2)}/M
-                              </span>
-                            )}
-                            {m.speed_tier && (
+                              <Checkbox
+                                checked={!!m.enabled}
+                                onChange={() => handleToggleOne(m)}
+                                size={16}
+                              />
                               <span
                                 className={cn(
-                                  "text-[0.63rem] px-1.5 py-0.5 rounded-full font-medium shrink-0",
-                                  SPEED_TIER_MAP[m.speed_tier]?.bg ??
-                                    "bg-bg-alt text-text-muted",
+                                  "text-[0.78rem] truncate flex-1",
+                                  m.enabled
+                                    ? "text-text font-medium"
+                                    : "text-text-muted",
                                 )}
                               >
-                                {SPEED_TIER_MAP[m.speed_tier]?.label ??
-                                  m.speed_tier}
+                                {shortName(m.name)}
                               </span>
-                            )}
-                          </div>
-                        ))}
+                              <div
+                                className="flex items-center gap-2 shrink-0"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="text-right leading-tight min-w-[96px]">
+                                  <div className="text-[0.63rem] font-mono text-text-muted">
+                                    参考入 {reference == null ? "-" : formatUsdPrice(reference.input, settings)}
+                                  </div>
+                                  <div className="text-[0.63rem] font-mono text-text-muted">
+                                    参考出 {reference == null ? "-" : formatUsdPrice(reference.output, settings)}
+                                    {reference != null && (
+                                      <span className="ml-1">{displayCurrency(settings)}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.001"
+                                  value={inputValue}
+                                  onChange={(e) =>
+                                    handlePriceInputChange(m.id, e.target.value)
+                                  }
+                                  className="w-20 rounded-md border border-border-light bg-bg px-2 py-1 text-[0.7rem] text-text font-mono focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                                  title="兼容单价：每百万输入 token，用于成本估算"
+                                />
+                                <button
+                                  disabled={!canSavePrice || savingPrice}
+                                  onClick={() => handleSaveModelPrice(m)}
+                                  className={cn(
+                                    "w-7 h-7 inline-flex items-center justify-center rounded-md border-none transition-colors",
+                                    canSavePrice && !savingPrice
+                                      ? "bg-primary text-white hover:bg-primary-hover cursor-pointer"
+                                      : "bg-bg-alt text-text-muted cursor-not-allowed",
+                                  )}
+                                  title="保存模型价格"
+                                >
+                                  {savingPrice ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <Check size={12} />
+                                  )}
+                                </button>
+                              </div>
+                              {m.speed_tier && (
+                                <span
+                                  className={cn(
+                                    "text-[0.63rem] px-1.5 py-0.5 rounded-full font-medium shrink-0",
+                                    SPEED_TIER_MAP[m.speed_tier]?.bg ??
+                                      "bg-bg-alt text-text-muted",
+                                  )}
+                                >
+                                  {SPEED_TIER_MAP[m.speed_tier]?.label ??
+                                    m.speed_tier}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                     </div>
                   );
                 })}
@@ -1651,6 +1828,7 @@ function ModelPicker({
   providers: ModelProvider[];
   models: Model[];
 }) {
+  const { data: settings } = useSettings();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -1762,6 +1940,7 @@ function ModelPicker({
                     </div>
                     {providerModels.map((m) => {
                       const isSelected = m.id === value;
+                      const price = getModelPriceDisplay(m);
                       return (
                         <button
                           key={m.id}
@@ -1795,7 +1974,7 @@ function ModelPicker({
                             {m.name}
                           </span>
                           <span className="text-[0.65rem] text-text-muted font-mono">
-                            {formatPrice(m.price_per_million_tokens)}
+                            {formatUsdPrice(price.input, settings)}
                           </span>
                         </button>
                       );

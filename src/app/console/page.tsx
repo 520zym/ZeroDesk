@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Square,
   Download,
+  FolderOpen,
   Clock,
   Cpu,
   DollarSign,
@@ -22,9 +23,11 @@ import {
   Reply,
   X,
 } from "lucide-react";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Avatar, Badge, ProgressBar, EmptyState, MarkdownContent } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatUsdCost } from "@/lib/pricing";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import {
   useTask,
@@ -40,6 +43,7 @@ import {
   useRegenerateMessage,
 } from "@/hooks/useTasks";
 import { useAgents } from "@/hooks/useAgents";
+import { useSettings } from "@/hooks/useSettings";
 import { useStreamStore } from "@/stores/useStreamStore";
 import QuoteBlock from "./components/QuoteBlock";
 import ChatInput from "./components/ChatInput";
@@ -143,6 +147,23 @@ function tryParseMetadata(json: string | null): Record<string, unknown> | null {
   }
 }
 
+function extractArtifactPaths(messages: ExecutionMessage[] | undefined): string[] {
+  if (!messages) return [];
+  const paths = new Set<string>();
+  const pattern = /(?:^|[\s`"'（(])((?:\/Users|\/Volumes|\/tmp|\/private\/tmp)\/[^\s`"'，。；;!！?？)）]+?\.(?:md|txt|pdf|docx|xlsx|csv|pptx|html|json|zip|tar|gz|png|jpg|jpeg|webp))/gi;
+  for (const msg of messages) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(msg.content)) !== null) {
+      paths.add(match[1]);
+    }
+  }
+  return Array.from(paths);
+}
+
+function fileName(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
 function ThinkingSection({ thinking }: { thinking: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -192,9 +213,15 @@ export default function ConsolePage() {
 
   const { data: task, isLoading: taskLoading } = useTask(taskId);
   const { data: taskRuns, isLoading: runsLoading } = useTaskRuns(taskId);
+  const { data: settings } = useSettings();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runSelectorOpen, setRunSelectorOpen] = useState(false);
+  const [targetExpanded, setTargetExpanded] = useState(false);
   const runSelectorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setTargetExpanded(false);
+  }, [taskId]);
 
   // Read initial runId from URL search params (e.g. navigated from history page)
   const urlRunId = searchParams.get("runId");
@@ -293,6 +320,8 @@ export default function ConsolePage() {
         return group[selectedIdx] ?? msg;
       });
   }, [messages, regenGroupMap, regenSelected]);
+
+  const artifactPaths = useMemo(() => extractArtifactPaths(messages), [messages]);
 
   const taskAgents = useMemo(() => {
     if (!agents || !steps) return [];
@@ -534,6 +563,8 @@ export default function ConsolePage() {
 
   const runTokens = activeRun?.total_tokens ?? task.total_tokens ?? 0;
   const runCost = activeRun?.total_cost ?? task.total_cost ?? 0;
+  const targetText = task.goal || task.description || "";
+  const canExpandTarget = targetText.length > 80 || targetText.includes("\n");
 
   const tokenProgress = runTokens && task.timeout_minutes
     ? Math.min(100, Math.round((runTokens / (task.timeout_minutes * 10000)) * 100))
@@ -719,6 +750,61 @@ export default function ConsolePage() {
             <Download size={14} />
           </button>
         </div>
+
+        {(targetText || artifactPaths.length > 0) && (
+          <div className="border-b border-border-light bg-surface/70 px-5 py-3">
+            {targetText && (
+              <div className="rounded-lg bg-bg/60 px-3 py-2">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <div className="text-[0.66rem] font-medium text-text-muted">任务目标</div>
+                  {canExpandTarget && (
+                    <button
+                      onClick={() => setTargetExpanded((expanded) => !expanded)}
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.66rem] font-medium text-primary hover:bg-primary-light"
+                    >
+                      {targetExpanded ? "收起" : "展开"}
+                      <ChevronDown size={11} className={cn("transition-transform", targetExpanded && "rotate-180")} />
+                    </button>
+                  )}
+                </div>
+                <div
+                  title={!targetExpanded ? targetText : undefined}
+                  className={cn(
+                    "text-[0.76rem] leading-relaxed text-text-secondary",
+                    targetExpanded ? "max-h-40 overflow-y-auto whitespace-pre-wrap pr-1" : "line-clamp-1"
+                  )}
+                >
+                  {targetText}
+                </div>
+              </div>
+            )}
+            {artifactPaths.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {artifactPaths.map((path) => (
+                  <div key={path} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border-light bg-bg px-2 py-1">
+                    <span className="max-w-[240px] truncate text-[0.7rem] font-medium text-text-secondary" title={path}>
+                      {fileName(path)}
+                    </span>
+                    <button
+                      onClick={() => openPath(path)}
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.66rem] font-medium text-primary hover:bg-primary-light"
+                    >
+                      <Download size={11} />
+                      打开
+                    </button>
+                    <button
+                      onClick={() => revealItemInDir(path)}
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.66rem] font-medium text-text-muted hover:bg-bg-alt hover:text-text"
+                    >
+                      <FolderOpen size={11} />
+                      文件夹
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Message stream */}
         <div ref={streamRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-bg/30">
@@ -1016,7 +1102,7 @@ export default function ConsolePage() {
             {
               icon: DollarSign,
               label: "预估费用",
-              value: `¥${runCost.toFixed(2)}`,
+              value: formatUsdCost(runCost, settings),
               iconColor: "text-sand",
               iconBg: "bg-sand-light",
             },

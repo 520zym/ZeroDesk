@@ -19,14 +19,17 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatUsdCost } from "@/lib/pricing";
 import { StatCard, Badge, EmptyState } from "@/components/ui";
 import type { BadgeVariant } from "@/components/ui";
 import { useHistoryStats, useHistoryTasks } from "@/hooks/useDashboard";
 import { useTeams } from "@/hooks/useTeams";
 import { useRerunTask, useTaskRuns } from "@/hooks/useTasks";
+import { useSettings } from "@/hooks/useSettings";
 import type { Task, Team } from "@/types";
 
 const statusLabels: Record<string, string> = {
+  running: "执行中",
   completed: "已完成",
   failed: "失败",
   archived: "已归档",
@@ -94,6 +97,7 @@ export default function HistoryPage() {
   }, [searchInput]);
 
   const { data: stats, isLoading: statsLoading } = useHistoryStats();
+  const { data: settings } = useSettings();
   const { data: tasks, isLoading: tasksLoading } = useHistoryTasks(
     debouncedSearch || undefined
       ? {
@@ -215,7 +219,7 @@ export default function HistoryPage() {
           value={
             statsLoading
               ? "—"
-              : `¥${(stats?.total_cost ?? 0).toFixed(2)}`
+              : formatUsdCost(stats?.total_cost ?? 0, settings)
           }
           label="总消耗"
         />
@@ -460,7 +464,7 @@ function TaskHistoryRow({
                 复盘
               </button>
             )}
-            {(task.status === "completed" || task.status === "failed") && (
+            {task.status !== "running" && (task.status === "completed" || task.status === "failed") && (
               <button
                 onClick={() => onRerun(task)}
                 disabled={rerunPending}

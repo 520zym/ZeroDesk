@@ -21,6 +21,7 @@ const MIGRATION_013_SQL: &str = include_str!("migrations/013_fix_duplicate_runs.
 const MIGRATION_014_SQL: &str = include_str!("migrations/014_global_search_fts.sql");
 const MIGRATION_015_SQL: &str = include_str!("migrations/015_regenerate.sql");
 const MIGRATION_016_SQL: &str = include_str!("migrations/016_skillsmp_api_base_url.sql");
+const MIGRATION_017_SQL: &str = include_str!("migrations/017_price_currency.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -62,8 +63,8 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         }
     }
 
-    // 015-016 迁移：简单 ALTER TABLE
-    for sql in [MIGRATION_015_SQL, MIGRATION_016_SQL] {
+    // 015-017 迁移：简单 ALTER TABLE
+    for sql in [MIGRATION_015_SQL, MIGRATION_016_SQL, MIGRATION_017_SQL] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))

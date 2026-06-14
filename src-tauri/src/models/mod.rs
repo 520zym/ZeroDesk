@@ -285,6 +285,9 @@ pub struct SystemSettings {
     pub data_path: Option<String>,
     pub skillsmp_api_key: Option<String>,
     pub skillsmp_api_base_url: String,
+    pub price_currency: String,
+    pub usd_cny_rate: f64,
+    pub exchange_rate_updated_at: Option<String>,
     pub updated_at: String,
 }
 

@@ -5,7 +5,10 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::db::DEFAULT_WORKSPACE_ID;
-use crate::models::{FallbackChainEntry, Model, ModelProvider, ResiliencePolicy, SystemModelAssignment, TestConnectionResult};
+use crate::models::{
+    FallbackChainEntry, Model, ModelProvider, ResiliencePolicy, SystemModelAssignment,
+    TestConnectionResult,
+};
 
 // ── OpenAI-compatible API response types ─────────────────────
 
@@ -22,9 +25,7 @@ struct OpenAiModel {
 // ── Provider CRUD ────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn list_providers(
-    pool: State<'_, SqlitePool>,
-) -> Result<Vec<ModelProvider>, String> {
+pub async fn list_providers(pool: State<'_, SqlitePool>) -> Result<Vec<ModelProvider>, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, ModelProvider>(
         "SELECT * FROM model_providers WHERE workspace_id = ?1 ORDER BY name ASC",
@@ -104,10 +105,7 @@ pub async fn update_provider(
 }
 
 #[tauri::command]
-pub async fn delete_provider(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_provider(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     sqlx::query("DELETE FROM model_providers WHERE id = ?1")
         .bind(&id)
         .execute(pool.inner())
@@ -145,19 +143,15 @@ pub async fn list_models(
     pool: State<'_, SqlitePool>,
     provider_id: String,
 ) -> Result<Vec<Model>, String> {
-    sqlx::query_as::<_, Model>(
-        "SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC",
-    )
-    .bind(&provider_id)
-    .fetch_all(pool.inner())
-    .await
-    .map_err(|e| e.to_string())
+    sqlx::query_as::<_, Model>("SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC")
+        .bind(&provider_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn list_workspace_models(
-    pool: State<'_, SqlitePool>,
-) -> Result<Vec<Model>, String> {
+pub async fn list_workspace_models(pool: State<'_, SqlitePool>) -> Result<Vec<Model>, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Model>(
         "SELECT m.* FROM models m \
@@ -179,6 +173,30 @@ pub async fn toggle_model_enabled(
 ) -> Result<Model, String> {
     sqlx::query("UPDATE models SET enabled = ?1 WHERE id = ?2")
         .bind(enabled as i64)
+        .bind(&id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Model>("SELECT * FROM models WHERE id = ?1")
+        .bind(&id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_model_price(
+    pool: State<'_, SqlitePool>,
+    id: String,
+    price_per_million_tokens: f64,
+) -> Result<Model, String> {
+    if !price_per_million_tokens.is_finite() || price_per_million_tokens < 0.0 {
+        return Err("模型价格必须是不小于 0 的数字".to_string());
+    }
+
+    sqlx::query("UPDATE models SET price_per_million_tokens = ?1 WHERE id = ?2")
+        .bind(price_per_million_tokens)
         .bind(&id)
         .execute(pool.inner())
         .await
@@ -215,14 +233,23 @@ fn build_models_url(base_url: &str) -> String {
     format!("{}/models", trimmed)
 }
 
-/// Built-in reference pricing (USD per million input tokens).
+/// Built-in reference pricing (per million input tokens).
 /// Only a best-effort approximation — users can override in the UI.
 fn lookup_reference_price(model_name: &str) -> f64 {
     let id = model_name.to_lowercase();
 
     // ── OpenAI ──────────────────────────────────────────────
-    if id.contains("gpt-4.1-mini") || id.contains("gpt-4.1-nano") {
+    if id.contains("gpt-5.5") {
+        return 5.00;
+    }
+    if id.contains("gpt-5.4") {
+        return 2.50;
+    }
+    if id.contains("gpt-4.1-nano") {
         return 0.10;
+    }
+    if id.contains("gpt-4.1-mini") {
+        return 0.40;
     }
     if id.contains("gpt-4.1") {
         return 2.00;
@@ -256,6 +283,12 @@ fn lookup_reference_price(model_name: &str) -> f64 {
     }
 
     // ── DeepSeek ────────────────────────────────────────────
+    if id.contains("deepseek-v4-flash") || id.contains("v4-flash") {
+        return 0.14;
+    }
+    if id.contains("deepseek-v4-pro") || id.contains("v4-pro") {
+        return 0.435;
+    }
     if id.contains("deepseek-v3") || id.contains("deepseek-chat") {
         return 0.27;
     }
@@ -270,6 +303,15 @@ fn lookup_reference_price(model_name: &str) -> f64 {
     if id.contains("qwen2.5-72b") || id.contains("qwen2-72b") {
         return 0.90;
     }
+    if id.contains("qwen-max") {
+        return 2.40;
+    }
+    if id.contains("qwen-plus") {
+        return 0.80;
+    }
+    if id.contains("qwen-turbo") {
+        return 0.30;
+    }
     if id.contains("qwen2.5-32b") || id.contains("qwen2.5-coder-32b") {
         return 0.56;
     }
@@ -279,8 +321,7 @@ fn lookup_reference_price(model_name: &str) -> f64 {
     if id.contains("qwen2.5-7b") || id.contains("qwen2-7b") {
         return 0.14;
     }
-    if id.contains("qwen2.5-3b") || id.contains("qwen2.5-1.5b") || id.contains("qwen2.5-0.5b")
-    {
+    if id.contains("qwen2.5-3b") || id.contains("qwen2.5-1.5b") || id.contains("qwen2.5-0.5b") {
         return 0.06;
     }
     if id.contains("qwq") {
@@ -288,6 +329,12 @@ fn lookup_reference_price(model_name: &str) -> f64 {
     }
 
     // ── Claude ──────────────────────────────────────────────
+    if id.contains("claude-opus-4") || id.contains("opus-4") {
+        return 15.00;
+    }
+    if id.contains("claude-sonnet-4") || id.contains("sonnet-4") {
+        return 3.00;
+    }
     if id.contains("claude-3.5-sonnet") || id.contains("claude-3-5-sonnet") {
         return 3.00;
     }
@@ -304,6 +351,30 @@ fn lookup_reference_price(model_name: &str) -> f64 {
         return 3.00;
     }
 
+    // ── Gemini ──────────────────────────────────────────────
+    if id.contains("gemini-2.5-pro") || id.contains("gemini 2.5 pro") {
+        return 1.25;
+    }
+    if id.contains("gemini-2.5-flash-lite") || id.contains("flash-lite") {
+        return 0.10;
+    }
+    if id.contains("gemini-2.5-flash") || id.contains("gemini 2.5 flash") {
+        return 0.30;
+    }
+
+    // ── Kimi / Moonshot ─────────────────────────────────────
+    if id.contains("kimi-k2") || id.contains("moonshot-v1") {
+        return 4.00;
+    }
+
+    // ── MiniMax ─────────────────────────────────────────────
+    if id.contains("minimax-m2.5") {
+        return 5.00;
+    }
+    if id.contains("minimax-m2") {
+        return 4.00;
+    }
+
     // ── Llama ───────────────────────────────────────────────
     if id.contains("llama-3.3-70b") || id.contains("llama-3.1-70b") {
         return 0.59;
@@ -311,8 +382,7 @@ fn lookup_reference_price(model_name: &str) -> f64 {
     if id.contains("llama-3.1-405b") {
         return 2.10;
     }
-    if id.contains("llama-3.1-8b") || id.contains("llama-3.2-3b") || id.contains("llama-3.2-1b")
-    {
+    if id.contains("llama-3.1-8b") || id.contains("llama-3.2-3b") || id.contains("llama-3.2-1b") {
         return 0.06;
     }
 
@@ -492,7 +562,11 @@ pub async fn test_provider_connection(
             }
 
             let body = r.text().await.unwrap_or_default();
-            let err_msg = format!("HTTP {} - {}", status, body.chars().take(200).collect::<String>());
+            let err_msg = format!(
+                "HTTP {} - {}",
+                status,
+                body.chars().take(200).collect::<String>()
+            );
 
             sqlx::query(
                 "UPDATE model_providers SET status = 'degraded', avg_latency_ms = ?1, updated_at = datetime('now') WHERE id = ?2",
@@ -530,16 +604,13 @@ pub async fn test_provider_connection(
 }
 
 /// MiniMax doesn't expose GET /models — return known models directly.
-async fn fetch_minimax_models(
-    pool: &SqlitePool,
-    provider_id: &str,
-) -> Result<Vec<Model>, String> {
-    // (model_id, price_usd_per_million_tokens, context_window)
+async fn fetch_minimax_models(pool: &SqlitePool, provider_id: &str) -> Result<Vec<Model>, String> {
+    // (model_id, reference price per million input tokens, context_window)
     let minimax_models: &[(&str, f64, i32)] = &[
-        ("MiniMax-M2.5",           0.70, 204800),
-        ("MiniMax-M2.5-highspeed", 0.35, 204800),
-        ("MiniMax-M2.1",           0.55, 204800),
-        ("MiniMax-M2",             0.40, 204800),
+        ("MiniMax-M2.5", 5.00, 204800),
+        ("MiniMax-M2.5-highspeed", 5.00, 204800),
+        ("MiniMax-M2.1", 4.00, 204800),
+        ("MiniMax-M2", 4.00, 204800),
     ];
 
     for (model_id, price, ctx) in minimax_models {
@@ -572,13 +643,11 @@ async fn fetch_minimax_models(
     .await
     .ok();
 
-    sqlx::query_as::<_, Model>(
-        "SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC",
-    )
-    .bind(provider_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())
+    sqlx::query_as::<_, Model>("SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC")
+        .bind(provider_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -613,7 +682,11 @@ pub async fn fetch_provider_models(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("HTTP {} - {}", status, body.chars().take(300).collect::<String>()));
+        return Err(format!(
+            "HTTP {} - {}",
+            status,
+            body.chars().take(300).collect::<String>()
+        ));
     }
 
     let body: OpenAiModelsResponse = resp
@@ -651,13 +724,11 @@ pub async fn fetch_provider_models(
     .await
     .ok();
 
-    sqlx::query_as::<_, Model>(
-        "SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC",
-    )
-    .bind(&provider_id)
-    .fetch_all(pool.inner())
-    .await
-    .map_err(|e| e.to_string())
+    sqlx::query_as::<_, Model>("SELECT * FROM models WHERE provider_id = ?1 ORDER BY name ASC")
+        .bind(&provider_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ── System Model Assignments ─────────────────────────────────

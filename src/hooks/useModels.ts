@@ -109,6 +109,19 @@ export function useToggleModelEnabled() {
   });
 }
 
+export function useUpdateModelPrice() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { id: string; pricePerMillionTokens: number }) =>
+      tauriInvoke<Model>("update_model_price", params),
+    onSuccess: (model) => {
+      qc.invalidateQueries({ queryKey: ["workspace-models"] });
+      qc.invalidateQueries({ queryKey: ["models", model.provider_id] });
+    },
+  });
+}
+
 export function useBatchToggleModels() {
   const qc = useQueryClient();
 

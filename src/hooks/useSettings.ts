@@ -21,6 +21,8 @@ interface UpdateSettingsPayload {
   data_path?: string;
   skillsmp_api_key?: string;
   skillsmp_api_base_url?: string;
+  price_currency?: "USD" | "CNY";
+  usd_cny_rate?: number;
 }
 
 export function useDataPath() {
@@ -37,6 +39,17 @@ export function useUpdateSettings() {
   return useMutation({
     mutationFn: (payload: UpdateSettingsPayload) =>
       tauriInvoke<SystemSettings>("update_settings", { payload }),
+    onSuccess: (data) => {
+      qc.setQueryData(["settings"], data);
+    },
+  });
+}
+
+export function useRefreshExchangeRate() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => tauriInvoke<SystemSettings>("refresh_exchange_rate"),
     onSuccess: (data) => {
       qc.setQueryData(["settings"], data);
     },

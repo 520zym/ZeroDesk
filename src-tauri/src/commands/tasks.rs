@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::{Emitter, State};
 
+use crate::costing::{calculate_task_usage_cost, recalculate_task_totals};
 use crate::db::DEFAULT_WORKSPACE_ID;
 use crate::models::{Agent, ExecutionMessage, Task, TaskRun, TaskStats, TaskStep, TaskStepSummary};
 
@@ -48,9 +49,7 @@ fn resolve_model_index_local(
 }
 
 #[tauri::command]
-pub async fn list_tasks(
-    pool: State<'_, SqlitePool>,
-) -> Result<Vec<Task>, String> {
+pub async fn list_tasks(pool: State<'_, SqlitePool>) -> Result<Vec<Task>, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Task>(
         "SELECT * FROM tasks WHERE workspace_id = ?1 ORDER BY updated_at DESC",
@@ -63,6 +62,7 @@ pub async fn list_tasks(
 
 #[tauri::command]
 pub async fn get_task(pool: State<'_, SqlitePool>, id: String) -> Result<Task, String> {
+    let _ = recalculate_task_totals(pool.inner(), &id).await;
     sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?1")
         .bind(&id)
         .fetch_one(pool.inner())
@@ -145,20 +145,19 @@ pub async fn update_task_status(
 }
 
 #[tauri::command]
-pub async fn get_task_stats(
-    pool: State<'_, SqlitePool>,
-) -> Result<TaskStats, String> {
+pub async fn get_task_stats(pool: State<'_, SqlitePool>) -> Result<TaskStats, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
 
-    let total: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1")
-            .bind(workspace_id)
-            .fetch_one(pool.inner())
-            .await
-            .map_err(|e| e.to_string())?;
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1")
+        .bind(workspace_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let running: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'running'",
+        "SELECT COUNT(DISTINCT t.id) FROM task_runs tr \
+         JOIN tasks t ON t.id = tr.task_id \
+         WHERE t.workspace_id = ?1 AND tr.status = 'running'",
     )
     .bind(workspace_id)
     .fetch_one(pool.inner())
@@ -166,7 +165,9 @@ pub async fn get_task_stats(
     .map_err(|e| e.to_string())?;
 
     let completed: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'completed'",
+        "SELECT COUNT(DISTINCT t.id) FROM task_runs tr \
+         JOIN tasks t ON t.id = tr.task_id \
+         WHERE t.workspace_id = ?1 AND tr.status = 'completed'",
     )
     .bind(workspace_id)
     .fetch_one(pool.inner())
@@ -174,20 +175,21 @@ pub async fn get_task_stats(
     .map_err(|e| e.to_string())?;
 
     let failed: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'failed'",
+        "SELECT COUNT(DISTINCT t.id) FROM task_runs tr \
+         JOIN tasks t ON t.id = tr.task_id \
+         WHERE t.workspace_id = ?1 AND tr.status = 'failed'",
     )
     .bind(workspace_id)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
 
-    let draft: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'draft'",
-    )
-    .bind(workspace_id)
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
+    let draft: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE workspace_id = ?1 AND status = 'draft'")
+            .bind(workspace_id)
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
 
     Ok(TaskStats {
         total: total.0,
@@ -215,7 +217,11 @@ pub async fn list_task_steps(
         .map_err(|e| e.to_string())
     } else {
         sqlx::query_as::<_, TaskStep>(
-            "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
+            "SELECT * FROM task_steps WHERE task_id = ?1 \
+             AND COALESCE(run_id, '') = COALESCE(( \
+               SELECT id FROM task_runs WHERE task_id = ?1 ORDER BY run_number DESC LIMIT 1 \
+             ), COALESCE(run_id, '')) \
+             ORDER BY step_order ASC",
         )
         .bind(&task_id)
         .fetch_all(pool.inner())
@@ -347,10 +353,7 @@ pub async fn update_task_step_status(
 }
 
 #[tauri::command]
-pub async fn delete_task(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_task(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     sqlx::query("DELETE FROM tasks WHERE id = ?1")
         .bind(&id)
         .execute(pool.inner())
@@ -416,10 +419,7 @@ pub async fn update_task_step(
 }
 
 #[tauri::command]
-pub async fn delete_task_step(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_task_step(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     sqlx::query("DELETE FROM task_steps WHERE id = ?1")
         .bind(&id)
         .execute(pool.inner())
@@ -445,9 +445,7 @@ pub async fn reorder_task_steps(
 }
 
 #[tauri::command]
-pub async fn list_running_tasks(
-    pool: State<'_, SqlitePool>,
-) -> Result<Vec<Task>, String> {
+pub async fn list_running_tasks(pool: State<'_, SqlitePool>) -> Result<Vec<Task>, String> {
     let workspace_id = DEFAULT_WORKSPACE_ID;
     sqlx::query_as::<_, Task>(
         "SELECT * FROM tasks WHERE workspace_id = ?1 AND status = 'running' ORDER BY updated_at DESC",
@@ -465,7 +463,13 @@ pub async fn list_task_step_summaries(
     sqlx::query_as::<_, TaskStepSummary>(
         "SELECT task_id, COUNT(*) as total_steps, \
          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_steps \
-         FROM task_steps GROUP BY task_id",
+         FROM task_steps ts \
+         WHERE COALESCE(ts.run_id, '') = COALESCE(( \
+           SELECT tr.id FROM task_runs tr \
+           WHERE tr.task_id = ts.task_id \
+           ORDER BY tr.run_number DESC LIMIT 1 \
+         ), COALESCE(ts.run_id, '')) \
+         GROUP BY task_id",
     )
     .fetch_all(pool.inner())
     .await
@@ -559,12 +563,11 @@ pub async fn start_task_execution(
         return Err("任务已在执行中".into());
     }
 
-    let step_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM task_steps WHERE task_id = ?1")
-            .bind(&task_id)
-            .fetch_one(pool.inner())
-            .await
-            .map_err(|e| e.to_string())?;
+    let step_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM task_steps WHERE task_id = ?1")
+        .bind(&task_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
 
     if step_count.0 == 0 {
         return Err("任务没有执行步骤，请先规划任务".into());
@@ -572,7 +575,7 @@ pub async fn start_task_execution(
 
     // Ensure a run exists; create run_number=1 if none
     // Deduplicate: keep only the latest run per run_number
-    let existing_run: Option<(String, String,)> = sqlx::query_as(
+    let existing_run: Option<(String, String)> = sqlx::query_as(
         "SELECT id, status FROM task_runs WHERE task_id = ?1 ORDER BY run_number DESC LIMIT 1",
     )
     .bind(&task_id)
@@ -624,7 +627,8 @@ pub async fn start_task_execution(
 
     tauri::async_runtime::spawn(async move {
         if let Err(e) =
-            crate::engine::run_task(app, pool_clone.clone(), task_id_clone.clone(), Some(run_id)).await
+            crate::engine::run_task(app, pool_clone.clone(), task_id_clone.clone(), Some(run_id))
+                .await
         {
             tracing::error!("Task {} execution failed: {}", task_id_clone, e);
             let _ = sqlx::query(
@@ -644,20 +648,35 @@ pub async fn list_task_runs(
     pool: State<'_, SqlitePool>,
     task_id: String,
 ) -> Result<Vec<TaskRun>, String> {
-    sqlx::query_as::<_, TaskRun>(
+    let mut runs = sqlx::query_as::<_, TaskRun>(
         "SELECT * FROM task_runs WHERE task_id = ?1 ORDER BY run_number ASC",
     )
     .bind(&task_id)
     .fetch_all(pool.inner())
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    for run in &mut runs {
+        let usage = calculate_task_usage_cost(pool.inner(), &task_id, Some(&run.id)).await?;
+        run.total_tokens = Some(usage.tokens);
+        run.total_cost = Some(usage.cost);
+        sqlx::query("UPDATE task_runs SET total_tokens = ?1, total_cost = ?2 WHERE id = ?3")
+            .bind(usage.tokens)
+            .bind(usage.cost)
+            .bind(&run.id)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(runs)
 }
 
 #[tauri::command]
 pub async fn list_all_latest_task_runs(
     pool: State<'_, SqlitePool>,
 ) -> Result<Vec<TaskRun>, String> {
-    sqlx::query_as::<_, TaskRun>(
+    let mut runs = sqlx::query_as::<_, TaskRun>(
         "SELECT tr.* FROM task_runs tr \
          INNER JOIN (SELECT task_id, MAX(run_number) as max_run FROM task_runs GROUP BY task_id) latest \
          ON tr.task_id = latest.task_id AND tr.run_number = latest.max_run \
@@ -665,7 +684,15 @@ pub async fn list_all_latest_task_runs(
     )
     .fetch_all(pool.inner())
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    for run in &mut runs {
+        let usage = calculate_task_usage_cost(pool.inner(), &run.task_id, Some(&run.id)).await?;
+        run.total_tokens = Some(usage.tokens);
+        run.total_cost = Some(usage.cost);
+    }
+
+    Ok(runs)
 }
 
 #[tauri::command]
@@ -684,13 +711,12 @@ pub async fn rerun_task(
         return Err("任务正在执行中，无法重新执行".into());
     }
 
-    let max_run: (i64,) = sqlx::query_as(
-        "SELECT COALESCE(MAX(run_number), 0) FROM task_runs WHERE task_id = ?1",
-    )
-    .bind(&task_id)
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
+    let max_run: (i64,) =
+        sqlx::query_as("SELECT COALESCE(MAX(run_number), 0) FROM task_runs WHERE task_id = ?1")
+            .bind(&task_id)
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
 
     let new_run_number = max_run.0 + 1;
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -707,14 +733,13 @@ pub async fn rerun_task(
     .map_err(|e| e.to_string())?;
 
     let source_steps: Vec<TaskStep> = if max_run.0 > 0 {
-        let prev_run_id: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM task_runs WHERE task_id = ?1 AND run_number = ?2",
-        )
-        .bind(&task_id)
-        .bind(max_run.0)
-        .fetch_optional(pool.inner())
-        .await
-        .map_err(|e| e.to_string())?;
+        let prev_run_id: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM task_runs WHERE task_id = ?1 AND run_number = ?2")
+                .bind(&task_id)
+                .bind(max_run.0)
+                .fetch_optional(pool.inner())
+                .await
+                .map_err(|e| e.to_string())?;
 
         if let Some((rid,)) = prev_run_id {
             sqlx::query_as::<_, TaskStep>(
@@ -780,8 +805,13 @@ pub async fn rerun_task(
     let run_id_clone = run_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            crate::engine::run_task(app, pool_clone.clone(), task_id_clone.clone(), Some(run_id_clone)).await
+        if let Err(e) = crate::engine::run_task(
+            app,
+            pool_clone.clone(),
+            task_id_clone.clone(),
+            Some(run_id_clone),
+        )
+        .await
         {
             tracing::error!("Task {} rerun failed: {}", task_id_clone, e);
             let _ = sqlx::query(
@@ -867,22 +897,26 @@ pub async fn smart_plan_task(
             .await
             .map_err(|e| e.to_string())?;
 
-    let models_info: Vec<(String, String, String, Option<i64>, Option<String>, Option<f64>)> =
-        sqlx::query_as(
-            "SELECT m.id, m.name, mp.name, m.quality_rating, m.speed_tier, m.price_per_million_tokens \
+    let models_info: Vec<(
+        String,
+        String,
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<f64>,
+    )> = sqlx::query_as(
+        "SELECT m.id, m.name, mp.name, m.quality_rating, m.speed_tier, m.price_per_million_tokens \
              FROM models m \
              JOIN model_providers mp ON m.provider_id = mp.id \
              WHERE m.enabled = 1 AND mp.enabled = 1",
-        )
-        .fetch_all(pool.inner())
-        .await
-        .map_err(|e| e.to_string())?;
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
 
     let model_index_map: Vec<(String, String)> = models_info
         .iter()
-        .map(|(db_id, name, provider, _, _, _)| {
-            (db_id.clone(), format!("{} ({})", name, provider))
-        })
+        .map(|(db_id, name, provider, _, _, _)| (db_id.clone(), format!("{} ({})", name, provider)))
         .collect();
 
     let agents_ctx = if agents.is_empty() {
@@ -999,10 +1033,7 @@ pub async fn smart_plan_task(
         models_ctx = models_ctx,
     );
 
-    let chat_url = format!(
-        "{}/chat/completions",
-        base_url.trim_end_matches('/')
-    );
+    let chat_url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let body = serde_json::json!({
         "model": model_name,
@@ -1045,12 +1076,17 @@ pub async fn smart_plan_task(
         .ok_or_else(|| "模型返回数据格式异常，无法提取任务计划".to_string())?;
 
     // Extract <think>...</think> reasoning content (produced by reasoning models like MiniMax M2.5)
-    let thinking: Option<String> = if let (Some(s), Some(e)) = (raw.find("<think>"), raw.rfind("</think>")) {
-        let t = raw[s + "<think>".len()..e].trim().to_string();
-        if t.is_empty() { None } else { Some(t) }
-    } else {
-        None
-    };
+    let thinking: Option<String> =
+        if let (Some(s), Some(e)) = (raw.find("<think>"), raw.rfind("</think>")) {
+            let t = raw[s + "<think>".len()..e].trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        } else {
+            None
+        };
 
     // Strip the reasoning block so only the JSON remains
     let after_think = if let Some(end) = raw.rfind("</think>") {
@@ -1066,13 +1102,15 @@ pub async fn smart_plan_task(
         .trim_end_matches("```")
         .trim();
 
-    let mut raw_value: serde_json::Value = serde_json::from_str(cleaned)
-        .map_err(|e| format!("解析 AI 返回的任务计划失败: {}\n原始内容片段: {}", e, &cleaned.chars().take(200).collect::<String>()))?;
+    let mut raw_value: serde_json::Value = serde_json::from_str(cleaned).map_err(|e| {
+        format!(
+            "解析 AI 返回的任务计划失败: {}\n原始内容片段: {}",
+            e,
+            &cleaned.chars().take(200).collect::<String>()
+        )
+    })?;
 
-    if let Some(steps) = raw_value
-        .get_mut("steps")
-        .and_then(|s| s.as_array_mut())
-    {
+    if let Some(steps) = raw_value.get_mut("steps").and_then(|s| s.as_array_mut()) {
         for step in steps {
             for key in &["agent_model_id", "agent_fallback_model_id"] {
                 if let Some(val) = step.get_mut(*key) {
@@ -1126,13 +1164,11 @@ pub async fn smart_plan_task(
             existing_id.clone()
         } else {
             let id = uuid::Uuid::new_v4().to_string();
-            let tools_json =
-                serde_json::to_string(&step.agent_tools).map_err(|e| e.to_string())?;
+            let tools_json = serde_json::to_string(&step.agent_tools).map_err(|e| e.to_string())?;
             let skills_json =
                 serde_json::to_string(&step.agent_skills).map_err(|e| e.to_string())?;
 
-            let model_id =
-                resolve_model_index_local(&step.agent_model_id, &model_index_map);
+            let model_id = resolve_model_index_local(&step.agent_model_id, &model_index_map);
             let fallback_model_id =
                 resolve_model_index_local(&step.agent_fallback_model_id, &model_index_map);
 
@@ -1160,14 +1196,12 @@ pub async fn smart_plan_task(
             id
         };
 
-        sqlx::query(
-            "INSERT OR IGNORE INTO team_members (team_id, agent_id) VALUES (?1, ?2)",
-        )
-        .bind(&team_id)
-        .bind(&agent_id)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| e.to_string())?;
+        sqlx::query("INSERT OR IGNORE INTO team_members (team_id, agent_id) VALUES (?1, ?2)")
+            .bind(&team_id)
+            .bind(&agent_id)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
 
         let step_id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
@@ -1186,14 +1220,12 @@ pub async fn smart_plan_task(
         .map_err(|e| e.to_string())?;
     }
 
-    sqlx::query(
-        "UPDATE tasks SET team_id = ?1, updated_at = datetime('now') WHERE id = ?2",
-    )
-    .bind(&team_id)
-    .bind(&task_id)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE tasks SET team_id = ?1, updated_at = datetime('now') WHERE id = ?2")
+        .bind(&team_id)
+        .bind(&task_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let steps = sqlx::query_as::<_, TaskStep>(
         "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
@@ -1242,14 +1274,17 @@ pub async fn send_user_message(
     .map_err(|e| e.to_string())?;
 
     // 3. 发出消息事件
-    let _ = app.emit("execution:message", serde_json::json!({
-        "id": &msg_id,
-        "task_id": &task_id,
-        "run_id": &run_id,
-        "sender_type": "human",
-        "content_type": "text",
-        "reply_to_id": &reply_to_id,
-    }));
+    let _ = app.emit(
+        "execution:message",
+        serde_json::json!({
+            "id": &msg_id,
+            "task_id": &task_id,
+            "run_id": &run_id,
+            "sender_type": "human",
+            "content_type": "text",
+            "reply_to_id": &reply_to_id,
+        }),
+    );
 
     // 4. 如果 @了某个 Agent，异步触发回复
     if let Some(ref agent_id) = mention_agent_id {
@@ -1268,7 +1303,8 @@ pub async fn send_user_message(
             let msg_id_c = msg_id.clone();
 
             tauri::async_runtime::spawn(async move {
-                let resolve_result = crate::engine::resolve_model(&pool_clone, &Some(agent.clone())).await;
+                let resolve_result =
+                    crate::engine::resolve_model(&pool_clone, &Some(agent.clone())).await;
                 let (model_name, base_url, api_key, _price) = match resolve_result {
                     Ok(info) => info,
                     Err(e) => {
@@ -1277,11 +1313,14 @@ pub async fn send_user_message(
                     }
                 };
 
-                let system_prompt = agent.system_prompt.as_deref().unwrap_or("你是一个专业的AI助手。");
+                let system_prompt = agent
+                    .system_prompt
+                    .as_deref()
+                    .unwrap_or("你是一个专业的AI助手。");
 
                 let recent: Vec<(String, String, Option<String>)> = sqlx::query_as(
                     "SELECT sender_type, content, sender_name FROM execution_messages
-                     WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at DESC LIMIT 5"
+                     WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at DESC LIMIT 5",
                 )
                 .bind(&task_id_c)
                 .bind(&run_id_c)
@@ -1291,7 +1330,9 @@ pub async fn send_user_message(
 
                 let mut context_parts = Vec::new();
                 for (st, c, sn) in recent.iter().rev() {
-                    let name = sn.as_deref().unwrap_or(if st == "agent" { "Agent" } else { "用户" });
+                    let name =
+                        sn.as_deref()
+                            .unwrap_or(if st == "agent" { "Agent" } else { "用户" });
                     context_parts.push(format!("[{}] {}", name, c));
                 }
                 let user_prompt = format!(
@@ -1301,10 +1342,18 @@ pub async fn send_user_message(
                 );
 
                 let result = crate::engine::call_llm_streaming(
-                    &app_clone, &task_id_c, "", &agent.id, &agent.name,
-                    &model_name, &base_url, &api_key,
-                    system_prompt, &user_prompt,
-                ).await;
+                    &app_clone,
+                    &task_id_c,
+                    "",
+                    &agent.id,
+                    &agent.name,
+                    &model_name,
+                    &base_url,
+                    &api_key,
+                    system_prompt,
+                    &user_prompt,
+                )
+                .await;
 
                 match result {
                     Ok((reply_content, thinking, tok_in, tok_out)) => {
@@ -1331,25 +1380,31 @@ pub async fn send_user_message(
                         .execute(&pool_clone)
                         .await;
 
-                        let _ = app_clone.emit("execution:message", serde_json::json!({
-                            "id": &reply_id,
-                            "task_id": &task_id_c,
-                            "run_id": &run_id_c,
-                            "sender_type": "agent",
-                            "sender_id": &agent.id,
-                            "sender_name": &agent.name,
-                            "reply_to_id": &msg_id_c,
-                            "content_type": "text",
-                        }));
+                        let _ = app_clone.emit(
+                            "execution:message",
+                            serde_json::json!({
+                                "id": &reply_id,
+                                "task_id": &task_id_c,
+                                "run_id": &run_id_c,
+                                "sender_type": "agent",
+                                "sender_id": &agent.id,
+                                "sender_name": &agent.name,
+                                "reply_to_id": &msg_id_c,
+                                "content_type": "text",
+                            }),
+                        );
                         // 清除流式气泡，避免与持久化消息重复显示
-                        let _ = app_clone.emit("execution:chunk", serde_json::json!({
-                            "task_id": &task_id_c,
-                            "step_id": "",
-                            "agent_id": &agent.id,
-                            "agent_name": &agent.name,
-                            "chunk_type": "step_done",
-                            "chunk": "",
-                        }));
+                        let _ = app_clone.emit(
+                            "execution:chunk",
+                            serde_json::json!({
+                                "task_id": &task_id_c,
+                                "step_id": "",
+                                "agent_id": &agent.id,
+                                "agent_name": &agent.name,
+                                "chunk_type": "step_done",
+                                "chunk": "",
+                            }),
+                        );
                     }
                     Err(e) => {
                         tracing::error!("Agent reply failed: {}", e);
@@ -1379,7 +1434,7 @@ pub async fn resume_execution(
     let msg_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO execution_messages (id, task_id, run_id, sender_type, content, content_type)
-         VALUES (?1, ?2, ?3, 'system', '执行已恢复', 'text')"
+         VALUES (?1, ?2, ?3, 'system', '执行已恢复', 'text')",
     )
     .bind(&msg_id)
     .bind(&task_id)
@@ -1388,13 +1443,16 @@ pub async fn resume_execution(
     .await
     .map_err(|e| e.to_string())?;
 
-    let _ = app.emit("execution:message", serde_json::json!({
-        "id": &msg_id,
-        "task_id": &task_id,
-        "run_id": &run_id,
-        "sender_type": "system",
-        "content_type": "text",
-    }));
+    let _ = app.emit(
+        "execution:message",
+        serde_json::json!({
+            "id": &msg_id,
+            "task_id": &task_id,
+            "run_id": &run_id,
+            "sender_type": "system",
+            "content_type": "text",
+        }),
+    );
 
     Ok(serde_json::json!({ "status": "running" }))
 }
@@ -1424,12 +1482,15 @@ pub async fn adjust_direction(
     let sys_msg_id = uuid::Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO execution_messages (id, task_id, run_id, sender_type, content, content_type)
-         VALUES (?1, ?2, ?3, 'system', ?4, 'text')"
+         VALUES (?1, ?2, ?3, 'system', ?4, 'text')",
     )
     .bind(&sys_msg_id)
     .bind(&task_id)
     .bind(&run_id)
-    .bind(&format!("方向已调整，后续步骤将遵循新指示：{}", &instruction))
+    .bind(&format!(
+        "方向已调整，后续步骤将遵循新指示：{}",
+        &instruction
+    ))
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -1440,13 +1501,16 @@ pub async fn adjust_direction(
         .await
         .map_err(|e| e.to_string())?;
 
-    let _ = app.emit("execution:message", serde_json::json!({
-        "id": &sys_msg_id,
-        "task_id": &task_id,
-        "run_id": &run_id,
-        "sender_type": "system",
-        "content_type": "text",
-    }));
+    let _ = app.emit(
+        "execution:message",
+        serde_json::json!({
+            "id": &sys_msg_id,
+            "task_id": &task_id,
+            "run_id": &run_id,
+            "sender_type": "system",
+            "content_type": "text",
+        }),
+    );
 
     Ok(serde_json::json!({ "status": "running", "instruction": instruction }))
 }
@@ -1484,7 +1548,7 @@ pub async fn regenerate_message(
         None => {
             // 首次重新生成：原消息设为 index 0 并建立分组
             sqlx::query(
-                "UPDATE execution_messages SET regen_group = ?1, regen_index = 0 WHERE id = ?2"
+                "UPDATE execution_messages SET regen_group = ?1, regen_index = 0 WHERE id = ?2",
             )
             .bind(&message_id)
             .bind(&message_id)
@@ -1497,7 +1561,7 @@ pub async fn regenerate_message(
 
     // 3. 查询当前组内最大 regen_index
     let max_index: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(regen_index), 0) FROM execution_messages WHERE regen_group = ?1"
+        "SELECT COALESCE(MAX(regen_index), 0) FROM execution_messages WHERE regen_group = ?1",
     )
     .bind(&group_id)
     .fetch_one(pool.inner())
@@ -1520,12 +1584,15 @@ pub async fn regenerate_message(
             .map_err(|e| e.to_string())?;
 
     // 提前 clone system_prompt，避免跨 async 边界借用问题
-    let system_prompt_owned = agent.system_prompt.clone().unwrap_or_else(|| "你是一个专业的AI助手。".to_string());
+    let system_prompt_owned = agent
+        .system_prompt
+        .clone()
+        .unwrap_or_else(|| "你是一个专业的AI助手。".to_string());
 
     // 6. 取最近上下文（同 send_user_message 逻辑）
     let recent: Vec<(String, String, Option<String>)> = sqlx::query_as(
         "SELECT sender_type, content, sender_name FROM execution_messages
-         WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at DESC LIMIT 5"
+         WHERE task_id = ?1 AND run_id = ?2 ORDER BY created_at DESC LIMIT 5",
     )
     .bind(&task_id)
     .bind(&run_id)
@@ -1535,7 +1602,9 @@ pub async fn regenerate_message(
 
     let mut context_parts = Vec::new();
     for (st, c, sn) in recent.iter().rev() {
-        let name = sn.as_deref().unwrap_or(if st == "agent" { "Agent" } else { "用户" });
+        let name = sn
+            .as_deref()
+            .unwrap_or(if st == "agent" { "Agent" } else { "用户" });
         context_parts.push(format!("[{}] {}", name, c));
     }
     let user_prompt = format!(
@@ -1554,10 +1623,18 @@ pub async fn regenerate_message(
 
     tauri::async_runtime::spawn(async move {
         let result = crate::engine::call_llm_streaming(
-            &app_clone, &task_id_c, "", &agent_c.id, &agent_c.name,
-            &model_name_c, &base_url, &api_key,
-            &system_prompt_owned, &user_prompt,
-        ).await;
+            &app_clone,
+            &task_id_c,
+            "",
+            &agent_c.id,
+            &agent_c.name,
+            &model_name_c,
+            &base_url,
+            &api_key,
+            &system_prompt_owned,
+            &user_prompt,
+        )
+        .await;
 
         match result {
             Ok((reply_content, thinking, tok_in, tok_out)) => {
@@ -1586,25 +1663,31 @@ pub async fn regenerate_message(
                 .execute(&pool_clone)
                 .await;
 
-                let _ = app_clone.emit("execution:message", serde_json::json!({
-                    "id": &reply_id,
-                    "task_id": &task_id_c,
-                    "run_id": &run_id_c,
-                    "sender_type": "agent",
-                    "sender_id": &agent_c.id,
-                    "sender_name": &agent_c.name,
-                    "content_type": "text",
-                    "regen_group": &group_id_c,
-                    "regen_index": new_index,
-                }));
-                let _ = app_clone.emit("execution:chunk", serde_json::json!({
-                    "task_id": &task_id_c,
-                    "step_id": "",
-                    "agent_id": &agent_c.id,
-                    "agent_name": &agent_c.name,
-                    "chunk_type": "step_done",
-                    "chunk": "",
-                }));
+                let _ = app_clone.emit(
+                    "execution:message",
+                    serde_json::json!({
+                        "id": &reply_id,
+                        "task_id": &task_id_c,
+                        "run_id": &run_id_c,
+                        "sender_type": "agent",
+                        "sender_id": &agent_c.id,
+                        "sender_name": &agent_c.name,
+                        "content_type": "text",
+                        "regen_group": &group_id_c,
+                        "regen_index": new_index,
+                    }),
+                );
+                let _ = app_clone.emit(
+                    "execution:chunk",
+                    serde_json::json!({
+                        "task_id": &task_id_c,
+                        "step_id": "",
+                        "agent_id": &agent_c.id,
+                        "agent_name": &agent_c.name,
+                        "chunk_type": "step_done",
+                        "chunk": "",
+                    }),
+                );
             }
             Err(e) => {
                 tracing::error!("Regenerate message failed: {}", e);

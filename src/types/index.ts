@@ -159,12 +159,15 @@ export interface Model {
   name: string;
   quality_rating: number | null;
   speed_tier: string | null;
+  /** Backwards-compatible cost field: price per million input tokens. */
   price_per_million_tokens: number | null;
   status: string | null;
   enabled: number;
   context_window_tokens: number | null;
   created_at: string;
 }
+
+export type ModelPriceCurrency = "USD" | "CNY";
 
 export interface FallbackChainEntry {
   id: string;
@@ -327,6 +330,9 @@ export interface SystemSettings {
   data_path: string | null;
   skillsmp_api_key: string | null;
   skillsmp_api_base_url: string;
+  price_currency: ModelPriceCurrency;
+  usd_cny_rate: number;
+  exchange_rate_updated_at: string | null;
   updated_at: string;
 }
 

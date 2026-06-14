@@ -76,8 +76,8 @@ export default function ChatInput({ agents, disabled, placeholder, onSend }: Cha
         onSelect={handleSelectAgent}
         onSelectAll={handleSelectAll}
       />
-      <div className="flex items-end gap-2 max-w-[680px]">
-        <div className="flex-1 flex items-end gap-2 rounded-xl bg-bg border border-border-light px-4 py-2 focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10 transition-all">
+      <div className="flex w-full items-center gap-2">
+        <div className="flex-1 flex items-center gap-2 rounded-xl bg-bg border border-border-light px-4 py-2 focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10 transition-all">
           <textarea
             ref={inputRef}
             value={text}
@@ -99,7 +99,7 @@ export default function ChatInput({ agents, disabled, placeholder, onSend }: Cha
       </div>
       {/* Agent 快捷标签 */}
       {agents.length > 0 && (
-        <div className="mt-2 flex gap-1.5 max-w-[680px]">
+        <div className="mt-2 flex w-full flex-wrap gap-1.5">
           {agents.map(agent => (
             <button
               key={agent.id}

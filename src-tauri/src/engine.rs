@@ -2,6 +2,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
 
+use crate::costing::{calculate_cost, effective_model_price, ModelPrice};
 use crate::models::{Agent, Task, TaskStep};
 
 #[derive(Clone, Serialize)]
@@ -43,19 +44,26 @@ pub async fn run_task(
         .await
         .map_err(|e| e.to_string())?
     } else {
-        sqlx::query_as(
-            "SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC",
-        )
-        .bind(&task_id)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?
+        sqlx::query_as("SELECT * FROM task_steps WHERE task_id = ?1 ORDER BY step_order ASC")
+            .bind(&task_id)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?
     };
 
     if steps.is_empty() {
         create_message(
-            &pool, &task_id, run_id.as_deref(), None, "system", None, None,
-            "任务没有执行步骤，无法执行", "error", None, None,
+            &pool,
+            &task_id,
+            run_id.as_deref(),
+            None,
+            "system",
+            None,
+            None,
+            "任务没有执行步骤，无法执行",
+            "error",
+            None,
+            None,
         )
         .await?;
         set_task_status(&pool, &task_id, "failed").await?;
@@ -66,9 +74,17 @@ pub async fn run_task(
     }
 
     create_message(
-        &pool, &task_id, run_id.as_deref(), None, "system", None, None,
+        &pool,
+        &task_id,
+        run_id.as_deref(),
+        None,
+        "system",
+        None,
+        None,
         &format!("任务开始执行 — 共 {} 个步骤", steps.len()),
-        "text", None, None,
+        "text",
+        None,
+        None,
     )
     .await?;
 
@@ -105,8 +121,16 @@ pub async fn run_task(
         previous_output = last_msg.map(|(c,)| c).unwrap_or_default();
     }
 
-    let mut total_tokens: i64 = if run_id.is_some() { 0 } else { task.total_tokens.unwrap_or(0) };
-    let mut total_cost: f64 = if run_id.is_some() { 0.0 } else { task.total_cost.unwrap_or(0.0) };
+    let mut total_tokens: i64 = if run_id.is_some() {
+        0
+    } else {
+        task.total_tokens.unwrap_or(0)
+    };
+    let mut total_cost: f64 = if run_id.is_some() {
+        0.0
+    } else {
+        task.total_cost.unwrap_or(0.0)
+    };
 
     for (i, step) in steps.iter().enumerate() {
         if i < start_index {
@@ -116,13 +140,12 @@ pub async fn run_task(
         // 检查 task_run 暂停状态，暂停时轮询等待恢复
         if let Some(ref rid) = run_id {
             loop {
-                let run_status: Option<(String,)> = sqlx::query_as(
-                    "SELECT status FROM task_runs WHERE id = ?"
-                )
-                .bind(rid)
-                .fetch_optional(&pool)
-                .await
-                .map_err(|e| e.to_string())?;
+                let run_status: Option<(String,)> =
+                    sqlx::query_as("SELECT status FROM task_runs WHERE id = ?")
+                        .bind(rid)
+                        .fetch_optional(&pool)
+                        .await
+                        .map_err(|e| e.to_string())?;
                 match run_status {
                     Some((ref s,)) if s == "paused" => {
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -145,8 +168,17 @@ pub async fn run_task(
                 _ => "已终止",
             };
             create_message(
-                &pool, &task_id, run_id.as_deref(), None, "system", None, None,
-                &format!("任务{}", label), "text", None, None,
+                &pool,
+                &task_id,
+                run_id.as_deref(),
+                None,
+                "system",
+                None,
+                None,
+                &format!("任务{}", label),
+                "text",
+                None,
+                None,
             )
             .await?;
             return Ok(());
@@ -168,10 +200,7 @@ pub async fn run_task(
         } else {
             None
         };
-        let agent_name = agent
-            .as_ref()
-            .map(|a| a.name.as_str())
-            .unwrap_or("Agent");
+        let agent_name = agent.as_ref().map(|a| a.name.as_str()).unwrap_or("Agent");
 
         let _ = app.emit(
             "execution:chunk",
@@ -186,7 +215,13 @@ pub async fn run_task(
         );
 
         create_message(
-            &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
+            &pool,
+            &task_id,
+            run_id.as_deref(),
+            Some(&step.id),
+            "system",
+            None,
+            None,
             &format!(
                 "▶ 步骤 {}/{} — {} ({})",
                 i + 1,
@@ -194,42 +229,53 @@ pub async fn run_task(
                 step.name,
                 agent_name
             ),
-            "text", None, None,
+            "text",
+            None,
+            None,
         )
         .await?;
 
-        let (model_name, base_url, api_key, price_per_m) =
-            match resolve_model(&pool, &agent).await {
-                Ok(info) => info,
-                Err(e) => {
-                    create_message(
-                        &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
-                        &format!("无法解析模型: {}", e), "error", None, None,
-                    )
-                    .await?;
-                    sqlx::query("UPDATE task_steps SET status = 'failed' WHERE id = ?1")
-                        .bind(&step.id)
-                        .execute(&pool)
-                        .await
-                        .ok();
-                    set_task_status(&pool, &task_id, "failed").await?;
-                    if let Some(ref rid) = run_id {
-                        set_run_status(&pool, rid, "failed").await?;
-                    }
-                    let _ = app.emit(
-                        "execution:chunk",
-                        ExecutionChunk {
-                            task_id: task_id.clone(),
-                            step_id: step.id.clone(),
-                            agent_id: agent_id.to_string(),
-                            agent_name: agent_name.to_string(),
-                            chunk_type: "error".into(),
-                            chunk: e.clone(),
-                        },
-                    );
-                    return Err(e);
+        let (model_name, base_url, api_key, model_price) = match resolve_model(&pool, &agent).await
+        {
+            Ok(info) => info,
+            Err(e) => {
+                create_message(
+                    &pool,
+                    &task_id,
+                    run_id.as_deref(),
+                    Some(&step.id),
+                    "system",
+                    None,
+                    None,
+                    &format!("无法解析模型: {}", e),
+                    "error",
+                    None,
+                    None,
+                )
+                .await?;
+                sqlx::query("UPDATE task_steps SET status = 'failed' WHERE id = ?1")
+                    .bind(&step.id)
+                    .execute(&pool)
+                    .await
+                    .ok();
+                set_task_status(&pool, &task_id, "failed").await?;
+                if let Some(ref rid) = run_id {
+                    set_run_status(&pool, rid, "failed").await?;
                 }
-            };
+                let _ = app.emit(
+                    "execution:chunk",
+                    ExecutionChunk {
+                        task_id: task_id.clone(),
+                        step_id: step.id.clone(),
+                        agent_id: agent_id.to_string(),
+                        agent_name: agent_name.to_string(),
+                        chunk_type: "error".into(),
+                        chunk: e.clone(),
+                    },
+                );
+                return Err(e);
+            }
+        };
 
         let system_prompt = agent
             .as_ref()
@@ -248,20 +294,23 @@ pub async fn run_task(
         let start_time = std::time::Instant::now();
 
         match call_llm_streaming(
-            &app, &task_id, &step.id, agent_id, agent_name,
-            &model_name, &base_url, &api_key,
-            system_prompt, &user_prompt,
+            &app,
+            &task_id,
+            &step.id,
+            agent_id,
+            agent_name,
+            &model_name,
+            &base_url,
+            &api_key,
+            system_prompt,
+            &user_prompt,
         )
         .await
         {
             Ok((content, thinking, tok_in, tok_out)) => {
                 let duration = start_time.elapsed();
                 let step_tokens = tok_in + tok_out;
-                let step_cost = if price_per_m > 0.0 {
-                    step_tokens as f64 / 1_000_000.0 * price_per_m
-                } else {
-                    0.0
-                };
+                let step_cost = calculate_cost(tok_in, tok_out, model_price);
 
                 total_tokens += step_tokens;
                 total_cost += step_cost;
@@ -275,24 +324,34 @@ pub async fn run_task(
                 });
 
                 let _msg_id = create_message(
-                    &pool, &task_id, run_id.as_deref(), Some(&step.id), "agent",
-                    Some(agent_id), Some(agent_name),
-                    &content, "text", None,
+                    &pool,
+                    &task_id,
+                    run_id.as_deref(),
+                    Some(&step.id),
+                    "agent",
+                    Some(agent_id),
+                    Some(agent_name),
+                    &content,
+                    "text",
+                    None,
                     Some(&metadata.to_string()),
                 )
                 .await?;
 
                 // 发出 execution:message 事件
-                let _ = app.emit("execution:message", serde_json::json!({
-                    "id": &_msg_id,
-                    "task_id": &task_id,
-                    "run_id": &run_id,
-                    "step_id": &step.id,
-                    "sender_type": "agent",
-                    "sender_id": agent_id,
-                    "sender_name": agent_name,
-                    "content_type": "text",
-                }));
+                let _ = app.emit(
+                    "execution:message",
+                    serde_json::json!({
+                        "id": &_msg_id,
+                        "task_id": &task_id,
+                        "run_id": &run_id,
+                        "step_id": &step.id,
+                        "sender_type": "agent",
+                        "sender_id": agent_id,
+                        "sender_name": agent_name,
+                        "content_type": "text",
+                    }),
+                );
 
                 previous_output = content;
 
@@ -332,7 +391,13 @@ pub async fn run_task(
                 }
 
                 create_message(
-                    &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
+                    &pool,
+                    &task_id,
+                    run_id.as_deref(),
+                    Some(&step.id),
+                    "system",
+                    None,
+                    None,
                     &format!(
                         "✓ 步骤 {}/{} 完成 — {} ({:.1}s, {} tokens)",
                         i + 1,
@@ -341,7 +406,9 @@ pub async fn run_task(
                         duration.as_secs_f64(),
                         step_tokens
                     ),
-                    "text", None, None,
+                    "text",
+                    None,
+                    None,
                 )
                 .await?;
 
@@ -359,9 +426,17 @@ pub async fn run_task(
             }
             Err(e) => {
                 create_message(
-                    &pool, &task_id, run_id.as_deref(), Some(&step.id), "system", None, None,
+                    &pool,
+                    &task_id,
+                    run_id.as_deref(),
+                    Some(&step.id),
+                    "system",
+                    None,
+                    None,
                     &format!("✗ 步骤 {}/{} 失败: {}", i + 1, steps.len(), e),
-                    "error", None, None,
+                    "error",
+                    None,
+                    None,
                 )
                 .await?;
 
@@ -399,14 +474,22 @@ pub async fn run_task(
     }
 
     create_message(
-        &pool, &task_id, run_id.as_deref(), None, "system", None, None,
+        &pool,
+        &task_id,
+        run_id.as_deref(),
+        None,
+        "system",
+        None,
+        None,
         &format!(
             "任务执行完成 — 共 {} 步, {} tokens, ¥{:.4}",
             steps.len(),
             total_tokens,
             total_cost
         ),
-        "text", None, None,
+        "text",
+        None,
+        None,
     )
     .await?;
 
@@ -428,7 +511,7 @@ pub async fn run_task(
 pub async fn resolve_model(
     pool: &SqlitePool,
     agent: &Option<Agent>,
-) -> Result<(String, String, String, f64), String> {
+) -> Result<(String, String, String, ModelPrice), String> {
     if let Some(agent) = agent {
         if let Some(ref model_id) = agent.model_id {
             if let Ok(info) = query_model_info(pool, model_id).await {
@@ -456,34 +539,38 @@ pub async fn resolve_model(
         }
     }
 
-    sqlx::query_as::<_, (String, String, String, Option<f64>)>(
-        "SELECT m.name, mp.base_url, mp.api_key_encrypted, m.price_per_million_tokens \
+    let (name, base_url, api_key, stored_price) =
+        sqlx::query_as::<_, (String, String, String, Option<f64>)>(
+            "SELECT m.name, mp.base_url, mp.api_key_encrypted, m.price_per_million_tokens \
          FROM models m JOIN model_providers mp ON m.provider_id = mp.id \
          WHERE m.enabled = 1 AND mp.enabled = 1 \
          ORDER BY mp.avg_latency_ms ASC NULLS LAST LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .map(|(n, u, k, p)| (n, u, k, p.unwrap_or(0.0)))
-    .ok_or_else(|| "没有可用的模型。请在「模型与路由」页面启用至少一个模型".into())
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "没有可用的模型。请在「模型与路由」页面启用至少一个模型".to_string())?;
+    let price = effective_model_price(pool, &name, stored_price).await;
+    Ok((name, base_url, api_key, price))
 }
 
 pub async fn query_model_info(
     pool: &SqlitePool,
     model_id: &str,
-) -> Result<(String, String, String, f64), String> {
-    sqlx::query_as::<_, (String, String, String, Option<f64>)>(
-        "SELECT m.name, mp.base_url, mp.api_key_encrypted, m.price_per_million_tokens \
+) -> Result<(String, String, String, ModelPrice), String> {
+    let (name, base_url, api_key, stored_price) =
+        sqlx::query_as::<_, (String, String, String, Option<f64>)>(
+            "SELECT m.name, mp.base_url, mp.api_key_encrypted, m.price_per_million_tokens \
          FROM models m JOIN model_providers mp ON m.provider_id = mp.id \
          WHERE m.id = ?1 AND m.enabled = 1 AND mp.enabled = 1",
-    )
-    .bind(model_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .map(|(n, u, k, p)| (n, u, k, p.unwrap_or(0.0)))
-    .ok_or_else(|| format!("模型 {} 不可用", model_id))
+        )
+        .bind(model_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("模型 {} 不可用", model_id))?;
+    let price = effective_model_price(pool, &name, stored_price).await;
+    Ok((name, base_url, api_key, price))
 }
 
 fn build_user_prompt(
@@ -600,9 +687,7 @@ pub async fn call_llm_streaming(
                         if let Some(v) = usage.get("prompt_tokens").and_then(|v| v.as_i64()) {
                             tokens_in = v;
                         }
-                        if let Some(v) =
-                            usage.get("completion_tokens").and_then(|v| v.as_i64())
-                        {
+                        if let Some(v) = usage.get("completion_tokens").and_then(|v| v.as_i64()) {
                             tokens_out = v;
                         }
                     }
@@ -629,9 +714,7 @@ pub async fn call_llm_streaming(
                             }
                         }
 
-                        if let Some(r) =
-                            delta.get("reasoning_content").and_then(|v| v.as_str())
-                        {
+                        if let Some(r) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
                             if !r.is_empty() {
                                 full_thinking.push_str(r);
                                 let _ = app.emit(

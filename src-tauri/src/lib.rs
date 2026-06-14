@@ -1,12 +1,16 @@
 mod commands;
 mod context_builder;
+mod costing;
 mod db;
 mod engine;
 mod models;
 
 use std::path::PathBuf;
 
-use commands::{agents, dashboard, knowledge, models as models_cmd, prompts, search, settings, skills, tasks, teams};
+use commands::{
+    agents, dashboard, knowledge, models as models_cmd, prompts, search, settings, skills, tasks,
+    teams,
+};
 
 pub struct DataDir(pub PathBuf);
 
@@ -115,6 +119,7 @@ pub fn run() {
             models_cmd::list_workspace_models,
             models_cmd::toggle_provider_enabled,
             models_cmd::toggle_model_enabled,
+            models_cmd::update_model_price,
             models_cmd::batch_toggle_models,
             models_cmd::test_provider_connection,
             models_cmd::fetch_provider_models,
@@ -159,6 +164,7 @@ pub fn run() {
             // settings
             settings::get_settings,
             settings::update_settings,
+            settings::refresh_exchange_rate,
             settings::get_data_path,
             // dashboard
             dashboard::get_dashboard_kpis,
