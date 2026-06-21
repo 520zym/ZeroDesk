@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
+  Box,
   Check,
+  ChevronDown,
   Clipboard,
+  FileText,
   Loader2,
+  Maximize2,
   MessageSquare,
+  Paperclip,
+  PencilLine,
   Plus,
   Send,
   Settings2,
@@ -15,11 +21,16 @@ import {
   User,
   X,
 } from "lucide-react";
-import { EmptyState, MarkdownContent, Tabs } from "@/components/ui";
+import { EmptyState, MarkdownContent, Modal, Tabs } from "@/components/ui";
+import {
+  SUPPORTED_ATTACHMENT_ACCEPT,
+  buildChatAttachmentInput,
+} from "@/lib/fileContent";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import {
   useChatConversationStats,
   useChatConversations,
+  useChatAttachments,
   useChatMessages,
   useClearChatContext,
   useCreateChatConversation,
@@ -28,7 +39,17 @@ import {
   useUpdateChatConversation,
 } from "@/hooks/useChat";
 import { useProviders, useWorkspaceModels } from "@/hooks/useModels";
-import type { ChatConversation, ChatMessage, Model, ModelProvider } from "@/types";
+import { usePromptTemplates } from "@/hooks/usePrompts";
+import type {
+  ChatConversation,
+  ChatAttachment,
+  ChatAttachmentInput,
+  ChatConversationStats,
+  ChatMessage,
+  Model,
+  ModelProvider,
+  PromptTemplateEntry,
+} from "@/types";
 
 interface ChatMessageEventPayload {
   conversation_id: string;
@@ -43,6 +64,10 @@ interface ChatChunkEventPayload {
 interface StreamingReply {
   content: string;
   error: string | null;
+}
+
+interface PendingAttachment extends ChatAttachmentInput {
+  id: string;
 }
 
 interface ModelLogoInfo {
@@ -80,6 +105,29 @@ function formatDateTime(value: string | null | undefined): string {
 function modelLabel(models: Model[] | undefined, modelId: string | null | undefined): string {
   if (!modelId) return "未选择模型";
   return models?.find((m) => m.id === modelId)?.name ?? "模型不可用";
+}
+
+function formatTokenCount(value: number | null | undefined): string {
+  if (!value || value <= 0) return "-";
+  return value.toLocaleString("zh-CN");
+}
+
+function formatTokenSpeed(value: number | null | undefined): string {
+  if (!value || value <= 0) return "-";
+  return `${value.toFixed(value >= 10 ? 0 : 1)} tok/s`;
+}
+
+function formatFileSize(bytes: number | null | undefined): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function attachmentStatusLabel(status: ChatAttachment["status"] | PendingAttachment["status"]) {
+  if (status === "ready") return "已读取";
+  if (status === "failed") return "读取失败";
+  return "仅记录";
 }
 
 function modelLogo(
@@ -212,18 +260,35 @@ function ConversationRow({
   active,
   preview,
   onSelect,
+  onRename,
   onDelete,
 }: {
   conversation: ChatConversation;
   active: boolean;
   preview: string;
   onSelect: () => void;
+  onRename: (title: string) => void;
   onDelete: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(conversation.title);
+
+  useEffect(() => {
+    setTitle(conversation.title);
+  }, [conversation.title]);
+
+  function commitTitle() {
+    const next = title.trim();
+    if (next && next !== conversation.title) {
+      onRename(next);
+    } else {
+      setTitle(conversation.title);
+    }
+    setEditing(false);
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={cn(
         "group w-full rounded-lg border px-3 py-3 text-left transition-all",
         active
@@ -234,15 +299,69 @@ function ConversationRow({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-[0.86rem] font-semibold">{conversation.title}</span>
+            {editing ? (
+              <input
+                value={title}
+                autoFocus
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitTitle();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setTitle(conversation.title);
+                    setEditing(false);
+                  }
+                }}
+                className="min-w-0 flex-1 rounded-md border border-primary/30 bg-surface px-2 py-1 text-[0.82rem] font-semibold text-text outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={onSelect}
+                onDoubleClick={() => setEditing(true)}
+                className="min-w-0 flex-1 truncate rounded-md px-1 py-0.5 text-left text-[0.86rem] font-semibold transition-colors hover:bg-bg-alt hover:text-primary"
+                title="点击选择，双击修改标题"
+              >
+                {conversation.title}
+              </button>
+            )}
             <span className="ml-auto shrink-0 text-[0.66rem] font-normal text-text-muted">
               {formatRelativeTime(conversation.updated_at)}
             </span>
           </div>
-          <p className="mt-1 line-clamp-1 text-[0.74rem] leading-relaxed text-text-muted">
+          <button
+            type="button"
+            onClick={onSelect}
+            className="mt-1 block w-full text-left"
+          >
+            <p className="line-clamp-1 text-[0.74rem] leading-relaxed text-text-muted">
             {preview || "暂无消息"}
-          </p>
+            </p>
+          </button>
         </div>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditing(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              setEditing(true);
+            }
+          }}
+          className="mt-0.5 hidden h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-primary-light hover:text-primary group-hover:flex"
+          title="修改标题"
+        >
+          <PencilLine size={14} />
+        </span>
         <span
           role="button"
           tabIndex={0}
@@ -263,7 +382,7 @@ function ConversationRow({
           <Trash2 size={14} />
         </span>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -271,10 +390,12 @@ function MessageBubble({
   message,
   model,
   provider,
+  attachments = [],
 }: {
   message: ChatMessage;
   model?: Model;
   provider?: ModelProvider;
+  attachments?: ChatAttachment[];
 }) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
@@ -305,6 +426,30 @@ function MessageBubble({
           ) : (
             <MarkdownContent content={message.content} />
           )}
+          {attachments.length > 0 && (
+            <div className="mt-3 flex flex-col gap-2 border-t border-white/20 pt-3">
+              {attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[0.76rem]",
+                    isUser
+                      ? "border-white/20 bg-white/10 text-white"
+                      : "border-border-light bg-bg text-text-secondary",
+                  )}
+                  title={attachment.file_name}
+                >
+                  <FileText size={14} className="shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{attachment.file_name}</div>
+                    <div className={cn("mt-0.5 text-[0.68rem]", isUser ? "text-white/70" : "text-text-muted")}>
+                      {formatFileSize(attachment.size_bytes)} · {attachmentStatusLabel(attachment.status)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div
           className={cn(
@@ -313,6 +458,18 @@ function MessageBubble({
           )}
         >
           <span>{formatDateTime(message.created_at)}</span>
+          {!isUser && message.tokens_used && (
+            <>
+              <span>·</span>
+              <span>{formatTokenCount(message.tokens_used)} tokens</span>
+            </>
+          )}
+          {!isUser && message.tokens_per_second && (
+            <>
+              <span>·</span>
+              <span>{formatTokenSpeed(message.tokens_per_second)}</span>
+            </>
+          )}
           <button
             type="button"
             onClick={copyMessage}
@@ -332,41 +489,80 @@ function MessageBubble({
   );
 }
 
-function ModelSelect({
+function ComposerModelSelect({
   value,
   models,
+  providers,
   onChange,
-  compact = false,
 }: {
   value: string | null | undefined;
   models: Model[] | undefined;
+  providers: Map<string, ModelProvider>;
   onChange: (modelId: string) => void;
-  compact?: boolean;
+}) {
+  const selectedModel = models?.find((model) => model.id === value);
+  const logo = modelLogo(selectedModel, providers.get(selectedModel?.provider_id ?? ""));
+
+  return (
+    <div className="relative inline-flex h-8 max-w-[180px] shrink-0 items-center gap-2 rounded-lg px-2 text-[0.76rem] font-medium text-text transition-colors hover:bg-bg-alt">
+      <div className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-md bg-bg-alt">
+        {logo.src ? (
+          <img
+            src={logo.src}
+            alt={logo.title}
+            className="h-3.5 w-3.5 object-contain"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <span className="text-[0.54rem] font-bold text-text-muted">{logo.label}</span>
+        )}
+      </div>
+      <span className="truncate">{selectedModel?.name ?? "选择模型"}</span>
+      <ChevronDown size={13} className="shrink-0 text-text-muted" />
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 cursor-pointer opacity-0"
+        title="选择模型"
+      >
+        <option value="" disabled>
+          选择模型
+        </option>
+        {(models ?? []).map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function ComposerIconButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick?: () => void;
+  children: ReactNode;
 }) {
   return (
-    <select
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value)}
-      className={cn(
-        "rounded-lg border border-border-light bg-surface text-text outline-none transition-colors hover:border-primary/30 focus:border-primary/50",
-        compact ? "h-9 max-w-[220px] px-3 text-[0.78rem]" : "h-10 w-full px-3 text-[0.82rem]",
-      )}
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-alt hover:text-text"
+      title={title}
     >
-      <option value="" disabled>
-        选择模型
-      </option>
-      {(models ?? []).map((model) => (
-        <option key={model.id} value={model.id}>
-          {model.name}
-        </option>
-      ))}
-    </select>
+      {children}
+    </button>
   );
 }
 
 function SettingsPanel({
   conversation,
   models,
+  stats,
   messageCount,
   onUpdate,
   onClear,
@@ -376,6 +572,7 @@ function SettingsPanel({
 }: {
   conversation: ChatConversation;
   models: Model[] | undefined;
+  stats?: ChatConversationStats;
   messageCount: number;
   onUpdate: (values: {
     title?: string;
@@ -383,6 +580,7 @@ function SettingsPanel({
     temperature?: number;
     maxOutputTokens?: number;
     contextEnabled?: boolean;
+    systemPrompt?: string | null;
   }) => void;
   onClear: () => void;
   clearing: boolean;
@@ -413,22 +611,11 @@ function SettingsPanel({
 
       {tab === "settings" ? (
         <div className="flex-1 space-y-5 overflow-y-auto p-4">
-          <section>
-            <div className="mb-2 flex items-center gap-2 text-[0.78rem] font-semibold text-text">
-              <SlidersHorizontal size={14} />
-              模型
-            </div>
-            <ModelSelect
-              value={conversation.model_id}
-              models={models}
-              onChange={(modelId) => onUpdate({ modelId })}
-            />
-            <p className="mt-2 text-[0.72rem] leading-relaxed text-text-muted">
-              当前对话会使用这个模型生成回复。
-            </p>
-          </section>
-
           <section className="space-y-4">
+            <div className="flex items-center gap-2 text-[0.78rem] font-semibold text-text">
+              <SlidersHorizontal size={14} />
+              参数设置
+            </div>
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[0.78rem] font-semibold text-text">温度</span>
@@ -494,6 +681,15 @@ function SettingsPanel({
           <InfoRow label="标题" value={conversation.title} />
           <InfoRow label="模型" value={modelLabel(models, conversation.model_id)} />
           <InfoRow label="消息数" value={`${messageCount}`} />
+          <InfoRow label="累计 Tokens" value={formatTokenCount(stats?.total_tokens)} />
+          <InfoRow
+            label="平均速度"
+            value={formatTokenSpeed(stats?.average_tokens_per_second)}
+          />
+          <InfoRow
+            label="Prompt 模板"
+            value={conversation.system_prompt?.trim() ? "已启用" : "未启用"}
+          />
           <InfoRow label="创建时间" value={formatDateTime(conversation.created_at)} />
           <InfoRow label="更新时间" value={formatDateTime(conversation.updated_at)} />
           <button
@@ -525,6 +721,7 @@ export default function ChatPage() {
   const { data: conversations = [], isLoading: conversationsLoading } = useChatConversations();
   const { data: models = [] } = useWorkspaceModels();
   const { data: providers = [] } = useProviders();
+  const { data: promptTemplates = [] } = usePromptTemplates();
   const createConversation = useCreateChatConversation();
   const updateConversation = useUpdateChatConversation();
   const deleteConversation = useDeleteChatConversation();
@@ -533,10 +730,15 @@ export default function ChatPage() {
 
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [renameValue, setRenameValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [promptPickerOpen, setPromptPickerOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [promptOverrides, setPromptOverrides] = useState<Record<string, string | null>>({});
   const [streamingReplies, setStreamingReplies] = useState<Record<string, StreamingReply>>({});
   const endRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedId) ?? conversations[0],
@@ -546,6 +748,7 @@ export default function ChatPage() {
   const { data: messages = [], isLoading: messagesLoading } = useChatMessages(
     selectedConversation?.id,
   );
+  const { data: chatAttachments = [] } = useChatAttachments(selectedConversation?.id);
   const { data: stats } = useChatConversationStats(selectedConversation?.id);
   const activeStreamingReply = selectedConversation
     ? streamingReplies[selectedConversation.id]
@@ -556,6 +759,7 @@ export default function ChatPage() {
       const conversationId = event.payload.conversation_id;
       queryClient.invalidateQueries({ queryKey: ["chat-conversations"] });
       queryClient.invalidateQueries({ queryKey: ["chat-messages", conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["chat-attachments", conversationId] });
       queryClient.invalidateQueries({ queryKey: ["chat-conversation-stats", conversationId] });
     });
 
@@ -589,6 +793,7 @@ export default function ChatPage() {
       if (payload.chunk_type === "done") {
         queryClient.invalidateQueries({ queryKey: ["chat-conversations"] });
         queryClient.invalidateQueries({ queryKey: ["chat-messages", payload.conversation_id] });
+        queryClient.invalidateQueries({ queryKey: ["chat-attachments", payload.conversation_id] });
         queryClient.invalidateQueries({
           queryKey: ["chat-conversation-stats", payload.conversation_id],
         });
@@ -619,6 +824,10 @@ export default function ChatPage() {
   }, [selectedConversation?.id, selectedConversation?.title]);
 
   useEffect(() => {
+    setAttachments([]);
+  }, [selectedConversation?.id]);
+
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, sendMessage.isPending, activeStreamingReply?.content]);
 
@@ -631,18 +840,24 @@ export default function ChatPage() {
   }
 
   async function handleSend() {
-    if (!selectedConversation || !draft.trim() || sendMessage.isPending) return;
+    if (!selectedConversation || (!draft.trim() && attachments.length === 0) || sendMessage.isPending) return;
     setError(null);
-    const content = draft.trim();
+    const content = draft.trim() || "请阅读并处理附件内容。";
+    const systemPrompt = getEffectiveSystemPrompt(selectedConversation);
+    const sendingAttachments = attachments;
     setDraft("");
+    setAttachments([]);
     try {
       await sendMessage.mutateAsync({
         conversationId: selectedConversation.id,
         content,
+        systemPrompt: systemPrompt ?? "",
+        attachments: sendingAttachments.map(({ id: _id, ...attachment }) => attachment),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setDraft(content);
+      setAttachments(sendingAttachments);
     }
   }
 
@@ -652,8 +867,15 @@ export default function ChatPage() {
     temperature?: number;
     maxOutputTokens?: number;
     contextEnabled?: boolean;
+    systemPrompt?: string | null;
   }) {
     if (!selectedConversation) return;
+    if (Object.prototype.hasOwnProperty.call(values, "systemPrompt")) {
+      setPromptOverrides((current) => ({
+        ...current,
+        [selectedConversation.id]: values.systemPrompt ?? null,
+      }));
+    }
     updateConversation.mutate({
       id: selectedConversation.id,
       ...values,
@@ -668,6 +890,38 @@ export default function ChatPage() {
     }
   }
 
+  async function handleAttachFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const extracted = await buildChatAttachmentInput(file);
+      setAttachments((current) => {
+        const next = current.filter(
+          (attachment) => !(attachment.file_name === file.name && attachment.size_bytes === file.size),
+        );
+        return [
+          ...next,
+          {
+            id: `${file.name}-${file.size}-${file.lastModified}`,
+            ...extracted,
+          },
+        ];
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
+  function applyPromptTemplate(template: PromptTemplateEntry) {
+    if (!selectedConversation) return;
+    updateSelected({ systemPrompt: template.prompt_content });
+    setPromptPickerOpen(false);
+    setTemplateSearch("");
+  }
+
   const previews = useMemo(() => {
     if (!selectedConversation) return new Map<string, string>();
     return new Map([[selectedConversation.id, messages[messages.length - 1]?.content ?? ""]]);
@@ -680,6 +934,39 @@ export default function ChatPage() {
     ? models.find((model) => model.id === selectedConversation.model_id)
     : undefined;
   const selectedProvider = providerMap.get(selectedModel?.provider_id ?? "");
+  function getEffectiveSystemPrompt(conversation: ChatConversation | undefined): string | null {
+    if (!conversation) return null;
+    if (Object.prototype.hasOwnProperty.call(promptOverrides, conversation.id)) {
+      return promptOverrides[conversation.id]?.trim() || null;
+    }
+    return conversation.system_prompt?.trim() || null;
+  }
+  const effectiveSystemPrompt = getEffectiveSystemPrompt(selectedConversation);
+  const selectedPromptTemplate = useMemo(() => {
+    const prompt = effectiveSystemPrompt;
+    if (!prompt) return undefined;
+    return promptTemplates.find((template) => template.prompt_content.trim() === prompt);
+  }, [promptTemplates, effectiveSystemPrompt]);
+  const selectedPromptLabel = effectiveSystemPrompt
+    ? (selectedPromptTemplate?.agent_name ?? "自定义 Prompt")
+    : null;
+  const filteredPromptTemplates = useMemo(() => {
+    const keyword = templateSearch.trim().toLowerCase();
+    if (!keyword) return promptTemplates;
+    return promptTemplates.filter((template) => {
+      const text = `${template.agent_name} ${template.role_description ?? ""} ${template.note ?? ""} ${template.prompt_content}`.toLowerCase();
+      return text.includes(keyword);
+    });
+  }, [promptTemplates, templateSearch]);
+  const attachmentsByMessageId = useMemo(() => {
+    const grouped = new Map<string, ChatAttachment[]>();
+    for (const attachment of chatAttachments) {
+      const list = grouped.get(attachment.message_id) ?? [];
+      list.push(attachment);
+      grouped.set(attachment.message_id, list);
+    }
+    return grouped;
+  }, [chatAttachments]);
 
   return (
     <div className="flex h-[calc(100vh-var(--topbar-height)-3rem)] min-h-[620px] overflow-hidden rounded-lg border border-border-light bg-surface shadow-xs">
@@ -730,6 +1017,12 @@ export default function ChatPage() {
                 active={conversation.id === selectedConversation?.id}
                 preview={previews.get(conversation.id) ?? ""}
                 onSelect={() => setSelectedId(conversation.id)}
+                onRename={(title) =>
+                  updateConversation.mutate({
+                    id: conversation.id,
+                    title,
+                  })
+                }
                 onDelete={() => handleDelete(conversation.id)}
               />
             ))
@@ -758,15 +1051,9 @@ export default function ChatPage() {
                   className="w-full bg-transparent text-[0.95rem] font-semibold text-text outline-none"
                 />
                 <p className="text-[0.72rem] text-text-muted">
-                  {modelLabel(models, selectedConversation.model_id)} · {stats?.message_count ?? messages.length} 条消息
+                  {modelLabel(models, selectedConversation.model_id)} · {stats?.message_count ?? messages.length} 条消息 · {formatTokenCount(stats?.total_tokens)} tokens
                 </p>
               </div>
-              <ModelSelect
-                compact
-                value={selectedConversation.model_id}
-                models={models}
-                onChange={(modelId) => updateSelected({ modelId })}
-              />
               <Settings2 size={18} className="text-text-muted xl:hidden" />
             </header>
 
@@ -791,6 +1078,7 @@ export default function ChatPage() {
                       provider={providerMap.get(
                         getMessageModel(message, selectedConversation, models)?.provider_id ?? "",
                       )}
+                      attachments={attachmentsByMessageId.get(message.id)}
                     />
                   ))}
                   {activeStreamingReply?.content && (
@@ -802,6 +1090,8 @@ export default function ChatPage() {
                         content: activeStreamingReply.content,
                         model_id: selectedConversation.model_id,
                         tokens_used: null,
+                        duration_ms: null,
+                        tokens_per_second: null,
                         error: activeStreamingReply.error,
                         created_at: new Date().toISOString(),
                       }}
@@ -835,7 +1125,45 @@ export default function ChatPage() {
                   还没有启用模型。请先到「模型与路由」配置 Provider 并启用模型。
                 </div>
               )}
-              <div className="mx-auto flex max-w-[880px] items-end gap-3 rounded-xl border border-border-light bg-bg px-3 py-3 shadow-xs">
+              <div className="mx-auto flex max-w-[880px] flex-col gap-2 rounded-xl border border-border-light bg-bg px-3 py-3 shadow-xs">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept={SUPPORTED_ATTACHMENT_ACCEPT}
+                  onChange={(e) => handleAttachFile(e.target.files?.[0])}
+                />
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {attachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="flex max-w-[260px] items-center gap-2 rounded-lg border border-border-light bg-surface px-2.5 py-2 text-[0.76rem] text-text-secondary"
+                        title={attachment.file_name}
+                      >
+                        <FileText size={14} className="shrink-0 text-primary" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-text">{attachment.file_name}</div>
+                          <div className="mt-0.5 text-[0.68rem] text-text-muted">
+                            {formatFileSize(attachment.size_bytes)} · {attachmentStatusLabel(attachment.status)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAttachments((current) =>
+                              current.filter((item) => item.id !== attachment.id),
+                            )
+                          }
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-bg-alt hover:text-text"
+                          title="移除附件"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -847,21 +1175,75 @@ export default function ChatPage() {
                   }}
                   placeholder="输入消息，Enter 发送，Shift + Enter 换行"
                   rows={1}
-                  className="max-h-36 min-h-[42px] flex-1 resize-none bg-transparent py-2 text-[0.88rem] text-text outline-none placeholder:text-text-muted"
+                  className="max-h-36 min-h-[42px] w-full resize-none bg-transparent py-2 text-[0.88rem] text-text outline-none placeholder:text-text-muted"
                 />
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={!draft.trim() || sendMessage.isPending || models.length === 0}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20 transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
-                  title="发送"
-                >
-                  {sendMessage.isPending ? (
-                    <Loader2 size={17} className="animate-spin" />
-                  ) : (
-                    <Send size={17} />
-                  )}
-                </button>
+                <div className="flex min-h-10 items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1">
+                    <ComposerIconButton
+                      title="添加文本附件"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Paperclip size={17} />
+                    </ComposerIconButton>
+                    <ComposerIconButton
+                      title="选择 Prompt 模板"
+                      onClick={() => setPromptPickerOpen(true)}
+                    >
+                      <Box size={17} />
+                    </ComposerIconButton>
+                    {selectedPromptLabel && (
+                      <div
+                        className="ml-1 flex h-8 max-w-[220px] shrink-0 items-center rounded-lg border border-primary/20 bg-primary-light/50 text-primary"
+                        title={`当前 Prompt 模板：${selectedPromptLabel}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setPromptPickerOpen(true)}
+                          className="flex min-w-0 items-center gap-1.5 px-2 text-[0.74rem] font-medium"
+                        >
+                          <FileText size={13} className="shrink-0" />
+                          <span className="truncate">Prompt: {selectedPromptLabel}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateSelected({ systemPrompt: null })}
+                          className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary/70 transition-colors hover:bg-primary/10 hover:text-primary"
+                          title="清除 Prompt 模板"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
+                    <ComposerModelSelect
+                      value={selectedConversation.model_id}
+                      models={models}
+                      providers={providerMap}
+                      onChange={(modelId) => updateSelected({ modelId })}
+                    />
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <ComposerIconButton title="展开输入框">
+                      <Maximize2 size={16} />
+                    </ComposerIconButton>
+                    <button
+                      type="button"
+                      onClick={handleSend}
+                      disabled={
+                        (!draft.trim() && attachments.length === 0) ||
+                        sendMessage.isPending ||
+                        models.length === 0
+                      }
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm shadow-primary/20 transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      title="发送"
+                    >
+                      {sendMessage.isPending ? (
+                        <Loader2 size={17} className="animate-spin" />
+                      ) : (
+                        <Send size={17} />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </>
@@ -880,6 +1262,7 @@ export default function ChatPage() {
         <SettingsPanel
           conversation={selectedConversation}
           models={models}
+          stats={stats}
           messageCount={stats?.message_count ?? messages.length}
           onUpdate={updateSelected}
           onClear={() => clearContext.mutate(selectedConversation.id)}
@@ -888,6 +1271,82 @@ export default function ChatPage() {
           deleting={deleteConversation.isPending}
         />
       )}
+
+      <Modal
+        open={promptPickerOpen}
+        onClose={() => setPromptPickerOpen(false)}
+        title="引用 Agent Prompt 模板"
+        width="680px"
+      >
+        <div className="space-y-4">
+          <input
+            value={templateSearch}
+            onChange={(e) => setTemplateSearch(e.target.value)}
+            placeholder="搜索 Agent、角色或提示词内容"
+            className="h-10 w-full rounded-lg border border-border-light bg-bg px-3 text-[0.84rem] text-text outline-none focus:border-primary/50"
+          />
+          <div className="max-h-[460px] space-y-2 overflow-y-auto pr-1">
+            {filteredPromptTemplates.length === 0 ? (
+              <div className="rounded-lg border border-border-light px-4 py-8 text-center text-[0.82rem] text-text-muted">
+                暂无可用 Agent Prompt 模板
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredPromptTemplates.map((template) => (
+                      <button
+                        key={`${template.agent_id}-${template.version}`}
+                        type="button"
+                        onClick={() => applyPromptTemplate(template)}
+                        className={cn(
+                          "w-full rounded-lg border border-border-light bg-bg px-4 py-3 text-left transition-colors",
+                          "hover:border-primary/30 hover:bg-primary-light/40",
+                          effectiveSystemPrompt === template.prompt_content.trim() &&
+                            "border-primary/30 bg-primary-light/50",
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[0.78rem] font-semibold text-white"
+                            style={{ backgroundColor: template.avatar_color ?? "#635BFF" }}
+                          >
+                            {template.avatar_char ?? template.agent_name.slice(0, 1)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-[0.86rem] font-semibold text-text">
+                                {template.agent_name}
+                              </span>
+                              <span className="shrink-0 rounded-md bg-bg-alt px-1.5 py-0.5 text-[0.66rem] text-text-muted">
+                                {template.version > 0 ? `v${template.version}` : "系统提示词"}
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-1 text-[0.74rem] text-text-muted">
+                              {template.role_description ?? template.note ?? "无描述"}
+                            </p>
+                            <p className="mt-2 line-clamp-2 text-[0.76rem] leading-relaxed text-text-secondary">
+                              {template.prompt_content}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {effectiveSystemPrompt && (
+            <button
+              type="button"
+              onClick={() => {
+                updateSelected({ systemPrompt: null });
+                setPromptPickerOpen(false);
+              }}
+              className="flex h-9 w-full items-center justify-center rounded-lg border border-border-light text-[0.8rem] font-medium text-text-secondary transition-colors hover:bg-bg-alt hover:text-text"
+            >
+              清除当前 Prompt 模板
+            </button>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -733,6 +733,8 @@ function VersionDiffModal({
 /* ──────────────────── Templates View ──────────────────── */
 
 function TemplatesView({ templates }: { templates: WorkflowTemplate[] }) {
+  const [viewingTemplate, setViewingTemplate] = useState<WorkflowTemplate | null>(null);
+
   if (templates.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -742,7 +744,7 @@ function TemplatesView({ templates }: { templates: WorkflowTemplate[] }) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto px-1 pt-2">
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {templates.map((t, i) => {
           const params = parseParams(t.parameters_json);
@@ -750,10 +752,11 @@ function TemplatesView({ templates }: { templates: WorkflowTemplate[] }) {
             <div
               key={t.id}
               className={cn(
-                "group bg-surface border border-border-light rounded-xl p-5",
+                "group bg-surface border border-border-light rounded-xl p-5 cursor-pointer",
                 "transition-all duration-200",
                 "hover:border-primary hover:shadow-card-hover hover:-translate-y-0.5",
               )}
+              onClick={() => setViewingTemplate(t)}
               style={{
                 animation: `fade-in 0.35s ease-out ${i * 60}ms both`,
               }}
@@ -791,6 +794,11 @@ function TemplatesView({ templates }: { templates: WorkflowTemplate[] }) {
                   已使用 {t.usage_count ?? 0} 次
                 </span>
                 <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setViewingTemplate(t);
+                  }}
                   className={cn(
                     "inline-flex items-center gap-1 px-3 py-1.5 rounded-lg",
                     "text-[0.75rem] font-medium",
@@ -799,7 +807,7 @@ function TemplatesView({ templates }: { templates: WorkflowTemplate[] }) {
                     "transition-colors cursor-pointer shadow-sm",
                   )}
                 >
-                  使用模板
+                  查看详情
                   <ArrowRight size={12} />
                 </button>
               </div>
@@ -807,6 +815,13 @@ function TemplatesView({ templates }: { templates: WorkflowTemplate[] }) {
           );
         })}
       </div>
+
+      {viewingTemplate && (
+        <WorkflowTemplateModal
+          template={viewingTemplate}
+          onClose={() => setViewingTemplate(null)}
+        />
+      )}
     </div>
   );
 }
@@ -820,4 +835,127 @@ function parseParams(json: string | null): string | null {
   } catch {
     return json;
   }
+}
+
+function parseTemplateItems(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item, index) => stringifyTemplateItem(item, index));
+    }
+    return [stringifyTemplateItem(parsed, 0)];
+  } catch {
+    return [json];
+  }
+}
+
+function stringifyTemplateItem(item: unknown, index: number): string {
+  if (typeof item === "string") return item;
+  if (typeof item === "number" || typeof item === "boolean") return String(item);
+  if (item && typeof item === "object") {
+    const obj = item as Record<string, unknown>;
+    const title = obj.title ?? obj.name ?? obj.label ?? obj.step ?? `步骤 ${index + 1}`;
+    const content = obj.prompt ?? obj.content ?? obj.description ?? obj.instruction;
+    return content ? `${String(title)}：${String(content)}` : String(title);
+  }
+  return String(item ?? "");
+}
+
+function WorkflowTemplateModal({
+  template,
+  onClose,
+}: {
+  template: WorkflowTemplate;
+  onClose: () => void;
+}) {
+  const params = parseTemplateItems(template.parameters_json);
+  const steps = parseTemplateItems(template.steps_json);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface rounded-xl shadow-xl border border-border-light w-[760px] max-w-[90vw] max-h-[82vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        style={{ animation: "fade-in 0.2s ease-out" }}
+      >
+        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border-light">
+          <div className="flex items-start gap-3">
+            <div
+              className={cn(
+                "w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0",
+                template.icon_bg || "bg-primary-light",
+              )}
+            >
+              {template.icon_name || "📋"}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[0.95rem] font-semibold text-text">{template.name}</h3>
+                {template.category && <Badge variant="draft">{template.category}</Badge>}
+              </div>
+              <p className="mt-1 text-[0.76rem] leading-relaxed text-text-muted">
+                {template.description || "暂无描述"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md text-text-muted hover:text-text hover:bg-bg-alt transition-colors cursor-pointer"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          <section>
+            <div className="mb-2 text-[0.78rem] font-semibold text-text">这是什么</div>
+            <p className="rounded-lg border border-border-light bg-bg px-3 py-2.5 text-[0.78rem] leading-relaxed text-text-secondary">
+              任务模板库保存的是可复用的任务/工作流提示模板，包含目标说明、需要用户补充的参数，以及建议执行步骤。聊天中引用它时，会把这些内容作为当前对话的系统提示词，让 AI 按模板组织回答。
+            </p>
+          </section>
+
+          <section>
+            <div className="mb-2 text-[0.78rem] font-semibold text-text">参数</div>
+            {params.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {params.map((param) => (
+                  <span
+                    key={param}
+                    className="rounded-lg border border-border-light bg-bg-alt px-2.5 py-1 text-[0.74rem] text-text-secondary"
+                  >
+                    {param}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[0.76rem] text-text-muted">暂无参数</p>
+            )}
+          </section>
+
+          <section>
+            <div className="mb-2 text-[0.78rem] font-semibold text-text">步骤</div>
+            {steps.length > 0 ? (
+              <ol className="space-y-2">
+                {steps.map((step, index) => (
+                  <li
+                    key={`${index}-${step}`}
+                    className="rounded-lg border border-border-light bg-bg px-3 py-2.5 text-[0.78rem] leading-relaxed text-text-secondary"
+                  >
+                    <span className="mr-2 font-semibold text-primary">{index + 1}.</span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-[0.76rem] text-text-muted">暂无步骤</p>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
 }

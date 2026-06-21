@@ -326,6 +326,7 @@ export interface ChatConversation {
   temperature: number;
   max_output_tokens: number;
   context_enabled: number;
+  system_prompt: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -337,13 +338,37 @@ export interface ChatMessage {
   content: string;
   model_id: string | null;
   tokens_used: number | null;
+  duration_ms: number | null;
+  tokens_per_second: number | null;
   error: string | null;
   created_at: string;
+}
+
+export interface ChatAttachment {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  content_text: string | null;
+  status: "ready" | "unsupported" | "failed";
+  created_at: string;
+}
+
+export interface ChatAttachmentInput {
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  content_text: string | null;
+  status: "ready" | "unsupported" | "failed";
 }
 
 export interface ChatConversationStats {
   conversation_id: string;
   message_count: number;
+  total_tokens: number;
+  average_tokens_per_second: number | null;
 }
 
 // ─── Settings ────────────────────────────────────────────────

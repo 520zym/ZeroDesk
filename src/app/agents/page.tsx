@@ -53,9 +53,9 @@ const AVATAR_COLORS = [
 ];
 
 const defaultTools = [
-  { key: "search", label: "联网搜索", icon: Globe },
-  { key: "file", label: "本地文件读写", icon: FileText },
-  { key: "exec", label: "命令执行", icon: Terminal },
+  { key: "search", label: "联网搜索", description: "允许检索网络信息", icon: Globe },
+  { key: "file", label: "本地文件读写", description: "支持文本与 Word .docx 正文读取", icon: FileText },
+  { key: "exec", label: "命令执行", description: "允许执行本地命令", icon: Terminal },
 ];
 
 function parseToolsJson(json: string | null): Record<string, boolean> {
@@ -895,14 +895,17 @@ export default function AgentsPage() {
                     key={tool.key}
                     className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2.5"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <tool.icon
                         size={14}
-                        className="text-text-secondary"
+                        className="shrink-0 text-text-secondary"
                       />
-                      <span className="text-[0.78rem] text-text">
-                        {tool.label}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="text-[0.78rem] text-text">{tool.label}</div>
+                        <div className="mt-0.5 truncate text-[0.68rem] text-text-muted">
+                          {tool.description}
+                        </div>
+                      </div>
                     </div>
                     <Toggle
                       checked={detailTools[tool.key]}
@@ -1180,14 +1183,17 @@ export default function AgentsPage() {
                   key={tool.key}
                   className="flex items-center justify-between rounded-lg border border-border-light px-3 py-2.5"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
                     <tool.icon
                       size={14}
-                      className="text-text-secondary"
+                      className="shrink-0 text-text-secondary"
                     />
-                    <span className="text-[0.78rem] text-text">
-                      {tool.label}
-                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[0.78rem] text-text">{tool.label}</div>
+                      <div className="mt-0.5 truncate text-[0.68rem] text-text-muted">
+                        {tool.description}
+                      </div>
+                    </div>
                   </div>
                   <Toggle
                     checked={createTools[tool.key]}

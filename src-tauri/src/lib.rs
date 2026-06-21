@@ -98,6 +98,7 @@ pub fn run() {
             chat::update_chat_conversation,
             chat::delete_chat_conversation,
             chat::list_chat_messages,
+            chat::list_chat_attachments,
             chat::clear_chat_context,
             chat::get_chat_conversation_stats,
             chat::send_chat_message,

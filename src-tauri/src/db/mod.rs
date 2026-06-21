@@ -1,5 +1,5 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -23,6 +23,9 @@ const MIGRATION_015_SQL: &str = include_str!("migrations/015_regenerate.sql");
 const MIGRATION_016_SQL: &str = include_str!("migrations/016_skillsmp_api_base_url.sql");
 const MIGRATION_017_SQL: &str = include_str!("migrations/017_price_currency.sql");
 const MIGRATION_018_SQL: &str = include_str!("migrations/018_chat.sql");
+const MIGRATION_019_SQL: &str = include_str!("migrations/019_chat_prompt_usage.sql");
+const MIGRATION_020_SQL: &str = include_str!("migrations/020_default_workflow_templates.sql");
+const MIGRATION_021_SQL: &str = include_str!("migrations/021_chat_attachments.sql");
 
 pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -44,7 +47,21 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         .await?;
 
     // 001-013 迁移：按分号分割逐条执行（无触发器，安全）
-    for sql in [MIGRATION_SQL, MIGRATION_002_SQL, MIGRATION_003_SQL, MIGRATION_004_SQL, MIGRATION_005_SQL, MIGRATION_006_SQL, MIGRATION_007_SQL, MIGRATION_008_SQL, MIGRATION_009_SQL, MIGRATION_010_SQL, MIGRATION_011_SQL, MIGRATION_012_SQL, MIGRATION_013_SQL] {
+    for sql in [
+        MIGRATION_SQL,
+        MIGRATION_002_SQL,
+        MIGRATION_003_SQL,
+        MIGRATION_004_SQL,
+        MIGRATION_005_SQL,
+        MIGRATION_006_SQL,
+        MIGRATION_007_SQL,
+        MIGRATION_008_SQL,
+        MIGRATION_009_SQL,
+        MIGRATION_010_SQL,
+        MIGRATION_011_SQL,
+        MIGRATION_012_SQL,
+        MIGRATION_013_SQL,
+    ] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))
@@ -64,8 +81,16 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         }
     }
 
-    // 015-018 迁移：简单 ALTER TABLE / CREATE TABLE
-    for sql in [MIGRATION_015_SQL, MIGRATION_016_SQL, MIGRATION_017_SQL, MIGRATION_018_SQL] {
+    // 015-021 迁移：简单 ALTER TABLE / CREATE TABLE / 种子数据
+    for sql in [
+        MIGRATION_015_SQL,
+        MIGRATION_016_SQL,
+        MIGRATION_017_SQL,
+        MIGRATION_018_SQL,
+        MIGRATION_019_SQL,
+        MIGRATION_020_SQL,
+        MIGRATION_021_SQL,
+    ] {
         let stripped: String = sql
             .lines()
             .filter(|line| !line.trim_start().starts_with("--"))
@@ -76,7 +101,10 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
             if !trimmed.is_empty() {
                 match sqlx::query(trimmed).execute(&pool).await {
                     Ok(_) => {}
-                    Err(e) if e.to_string().contains("duplicate column") || e.to_string().contains("already exists") => {
+                    Err(e)
+                        if e.to_string().contains("duplicate column")
+                            || e.to_string().contains("already exists") =>
+                    {
                         tracing::debug!("Migration 015 already applied: {}", e);
                     }
                     Err(e) => return Err(e),
@@ -114,14 +142,12 @@ pub async fn init_db(app_data_dir: &Path) -> Result<SqlitePool, sqlx::Error> {
         }
     }
 
-    sqlx::query(
-        "INSERT OR IGNORE INTO workspaces (id, name, path) VALUES (?1, ?2, ?3)",
-    )
-    .bind(DEFAULT_WORKSPACE_ID)
-    .bind("默认")
-    .bind(".")
-    .execute(&pool)
-    .await?;
+    sqlx::query("INSERT OR IGNORE INTO workspaces (id, name, path) VALUES (?1, ?2, ?3)")
+        .bind(DEFAULT_WORKSPACE_ID)
+        .bind("默认")
+        .bind(".")
+        .execute(&pool)
+        .await?;
 
     tracing::info!("Database initialized at {}", db_path.display());
     Ok(pool)

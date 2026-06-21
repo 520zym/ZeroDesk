@@ -141,6 +141,7 @@ pub struct ChatConversation {
     pub temperature: f64,
     pub max_output_tokens: i64,
     pub context_enabled: i64,
+    pub system_prompt: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -153,7 +154,22 @@ pub struct ChatMessage {
     pub content: String,
     pub model_id: Option<String>,
     pub tokens_used: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub tokens_per_second: Option<f64>,
     pub error: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChatAttachment {
+    pub id: String,
+    pub conversation_id: String,
+    pub message_id: String,
+    pub file_name: String,
+    pub mime_type: Option<String>,
+    pub size_bytes: i64,
+    pub content_text: Option<String>,
+    pub status: String,
     pub created_at: String,
 }
 
@@ -161,6 +177,8 @@ pub struct ChatMessage {
 pub struct ChatConversationStats {
     pub conversation_id: String,
     pub message_count: i64,
+    pub total_tokens: i64,
+    pub average_tokens_per_second: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

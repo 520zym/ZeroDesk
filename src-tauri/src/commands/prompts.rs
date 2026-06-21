@@ -137,18 +137,19 @@ pub async fn list_prompt_templates(
            a.avatar_char,
            a.avatar_color,
            a.role_description,
-           pv.content  AS prompt_content,
-           pv.version,
+           COALESCE(pv.content, a.system_prompt) AS prompt_content,
+           COALESCE(pv.version, 0) AS version,
            pv.note,
-           pv.created_at AS version_created_at
+           COALESCE(pv.created_at, a.updated_at) AS version_created_at
          FROM agents a
-         INNER JOIN prompt_versions pv ON pv.agent_id = a.id
-         WHERE a.workspace_id = ?1
+         LEFT JOIN prompt_versions pv ON pv.agent_id = a.id
            AND pv.version = (
              SELECT MAX(pv2.version)
              FROM prompt_versions pv2
              WHERE pv2.agent_id = a.id
            )
+         WHERE a.workspace_id = ?1
+           AND COALESCE(pv.content, a.system_prompt, '') != ''
          ORDER BY a.name ASC",
     )
     .bind(workspace_id)
