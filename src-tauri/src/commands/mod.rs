@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod dashboard;
+pub mod chat;
 pub mod knowledge;
 pub mod models;
 pub mod prompts;

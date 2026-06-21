@@ -8,8 +8,8 @@ mod models;
 use std::path::PathBuf;
 
 use commands::{
-    agents, dashboard, knowledge, models as models_cmd, prompts, search, settings, skills, tasks,
-    teams,
+    agents, chat, dashboard, knowledge, models as models_cmd, prompts, search, settings, skills,
+    tasks, teams,
 };
 
 pub struct DataDir(pub PathBuf);
@@ -92,6 +92,15 @@ pub fn run() {
             tasks::resume_execution,
             tasks::adjust_direction,
             tasks::regenerate_message,
+            // chat
+            chat::list_chat_conversations,
+            chat::create_chat_conversation,
+            chat::update_chat_conversation,
+            chat::delete_chat_conversation,
+            chat::list_chat_messages,
+            chat::clear_chat_context,
+            chat::get_chat_conversation_stats,
+            chat::send_chat_message,
             // agents
             agents::list_agents,
             agents::get_agent,

@@ -316,6 +316,36 @@ export interface ExecutionMessage {
   created_at: string;
 }
 
+// ─── Chat ───────────────────────────────────────────────────
+
+export interface ChatConversation {
+  id: string;
+  workspace_id: string;
+  title: string;
+  model_id: string | null;
+  temperature: number;
+  max_output_tokens: number;
+  context_enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  model_id: string | null;
+  tokens_used: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ChatConversationStats {
+  conversation_id: string;
+  message_count: number;
+}
+
 // ─── Settings ────────────────────────────────────────────────
 
 export interface SystemSettings {

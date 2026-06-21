@@ -133,6 +133,37 @@ pub struct Model {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChatConversation {
+    pub id: String,
+    pub workspace_id: String,
+    pub title: String,
+    pub model_id: Option<String>,
+    pub temperature: f64,
+    pub max_output_tokens: i64,
+    pub context_enabled: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChatMessage {
+    pub id: String,
+    pub conversation_id: String,
+    pub role: String,
+    pub content: String,
+    pub model_id: Option<String>,
+    pub tokens_used: Option<i64>,
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChatConversationStats {
+    pub conversation_id: String,
+    pub message_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FallbackChainEntry {
     pub id: String,
     pub workspace_id: String,

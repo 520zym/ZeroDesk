@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useStreamStore, type ExecutionChunkPayload } from "@/stores/useStreamStore";
 
 const PAGE_TITLES: Record<string, string> = {
+  "/chat": "对话",
   "/tasks": "任务中心",
   "/console": "执行控制台",
   "/history": "任务历史",

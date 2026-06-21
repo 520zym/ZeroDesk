@@ -15,6 +15,7 @@ import {
   ChevronRight,
   PanelLeftClose,
   Zap,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTaskStats } from "@/hooks/useTasks";
@@ -41,6 +42,7 @@ function useNavGroups(): NavGroup[] {
     {
       label: "工作",
       items: [
+        { to: "/chat", icon: MessageSquare, label: "对话" },
         {
           to: "/tasks",
           icon: CheckSquare,

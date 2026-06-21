@@ -5,6 +5,7 @@ import TasksPage from "./tasks/page";
 import TaskDetailPage from "./tasks/detail";
 import PlanPage from "./plan/page";
 import ConsolePage from "./console/page";
+import ChatPage from "./chat/page";
 import AgentsPage from "./agents/page";
 import TeamsPage from "./teams/page";
 import ModelsPage from "./models/page";
@@ -20,7 +21,8 @@ export const router = createBrowserRouter([
     path: "/",
     element: <AppLayout />,
     children: [
-      { index: true, element: <Navigate to="/tasks" replace /> },
+      { index: true, element: <Navigate to="/chat" replace /> },
+      { path: "chat", element: <ChatPage /> },
       { path: "tasks", element: <TasksPage /> },
       { path: "tasks/:id", element: <TaskDetailPage /> },
       { path: "tasks/:id/plan", element: <PlanPage /> },
